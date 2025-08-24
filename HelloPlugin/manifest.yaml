@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Plugin
+metadata:
+  author: RockChinQ
+  name: HelloPlugin
+  repository: ''
+  version: 0.1.0
+  description:
+    en_US: Hello LangBot Plugin
+    zh_Hans: Hello LangBot Plugin
+  label:
+    en_US: HelloPlugin
+    zh_Hans: HelloPlugin
+  icon: assets/icon.svg
+spec:
+  config: []
+  components:
+    EventListener:
+      fromDirs:
+      - path: components/event_listener/
+    Command:
+      fromDirs:
+      - path: components/commands/
+    Tool:
+      fromDirs:
+      - path: components/tools/
+execution:
+  python:
+    path: main.py
+    attr: HelloPlugin

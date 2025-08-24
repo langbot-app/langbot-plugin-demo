@@ -1,0 +1,3 @@
+# HelloPlugin
+
+Hello LangBot Plugin
