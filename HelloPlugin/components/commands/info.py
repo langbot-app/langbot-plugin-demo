@@ -14,10 +14,10 @@ class Info(Command):
         super().__init__()
         
         @self.subcommand(
-            name="",  # 空字符串表示根命令
-            help="Show information of the query", # 命令帮助信息
-            usage="info", # 命令使用示例，显示在命令帮助信息中
-            aliases=["i"], # 命令别名
+            name="",  # empty string means the root command
+            help="Show information of the query", # command help message
+            usage="info", # command usage example, displayed in the command help message
+            aliases=["i"], # command aliases
         )
         async def send(self, context: ExecuteContext) -> AsyncGenerator[CommandReturn, None]:
             print(context)

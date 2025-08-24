@@ -6,8 +6,8 @@ metadata:
   repository: ''
   version: 0.1.0
   description:
-    en_US: Hello LangBot Plugin
-    zh_Hans: Hello LangBot Plugin
+    en_US: This plugin is an experimental plugin that provides demos on `EventListener`, `Tool` and `Command` components.
+    zh_Hans: 这是一个实验性的插件，提供了 `EventListener`、`Tool` 和 `Command` 组件的演示。
   label:
     en_US: HelloPlugin
     zh_Hans: HelloPlugin

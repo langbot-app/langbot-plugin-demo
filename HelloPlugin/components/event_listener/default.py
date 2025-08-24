@@ -20,6 +20,6 @@ class DefaultEventListener(EventListener):
             
             await event_context.reply(
                 platform_message.MessageChain([
-                    platform_message.Plain(text=f"Hello from Nahida Plugin!"),
+                    platform_message.Plain(text=f"Hello from LangBot Plugin!"),
                 ])
             )
