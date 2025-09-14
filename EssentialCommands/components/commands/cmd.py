@@ -20,8 +20,7 @@ class Cmd(Command):
             help="Show all registered command",
             usage="cmd",
         )
-        async def send(self: Cmd, context: ExecuteContext) -> AsyncGenerator[CommandReturn, None]:
-            print(context)
+        async def _(self: Cmd, context: ExecuteContext) -> AsyncGenerator[CommandReturn, None]:
 
             assume_command_prefix = context.full_command_text[0]
 
@@ -31,7 +30,7 @@ class Cmd(Command):
 Available Commands:
 
 {command_list}
-Type {command_prefix}cmd <command> for more detailed manual.
+Type `{command_prefix}cmd man <command>` for more detailed manual.
             """.strip()
 
             commands = await self.plugin.list_commands()
@@ -45,3 +44,11 @@ Type {command_prefix}cmd <command> for more detailed manual.
             yield CommandReturn(
                 text=output_template.format(command_list=command_list_str, command_prefix=assume_command_prefix)
             )
+        
+        @self.subcommand(
+            name="man",
+            help="Show the manual of a command",
+            usage="cmd man <command>",
+        )
+        async def man(self: Cmd, context: ExecuteContext) -> AsyncGenerator[CommandReturn, None]:
+            print(context)
