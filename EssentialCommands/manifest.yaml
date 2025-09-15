@@ -15,6 +15,9 @@ metadata:
 spec:
   config:
   - name: language
+    label:
+      en_US: Language
+      zh_Hans: 语言
     type: select
     options:
     - name: zh_Hans
