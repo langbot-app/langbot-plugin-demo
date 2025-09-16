@@ -13,7 +13,7 @@ This plugin removes some commands that were previously available in LangBot, if 
 
 <hr/>
 
-# 中文
+# 实用命令
 
 本插件包含以下命令：
 
@@ -24,4 +24,4 @@ This plugin removes some commands that were previously available in LangBot, if 
 - `!func` - 显示所有可用的 LLM 工具
 - `!plugin` - 显示所有加载的插件
 
-本插件中删除了一些以往在 LangBot 可用的命令，若您需要这些命令，请提出 issue。
+本插件中删除了一些以往在 LangBot 可用的命令，若您需要这些命令，请提出 issue。 

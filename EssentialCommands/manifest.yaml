@@ -4,7 +4,7 @@ metadata:
   author: langbot-team
   name: EssentialCommands
   repository: https://github.com/langbot-app/langbot-plugin-demo
-  version: 0.1.1
+  version: 0.1.2
   description:
     en_US: Essential commands, previously included in LangBot
     zh_Hans: 实用命令, 以前包含在 LangBot 中
