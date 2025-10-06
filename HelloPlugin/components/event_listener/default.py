@@ -13,13 +13,19 @@ class DefaultEventListener(EventListener):
     def __init__(self):
         super().__init__()
         
-        @self.handler(events.PersonMessageReceived)
+        @self.handler(events.PersonNormalMessageReceived)
         async def handler(event_context: context.EventContext):
             print("Hello LangBot Plugin!")
             print(event_context)
+
+            event_context.prevent_default()
+
+            event_context.event.reply_message_chain = platform_message.MessageChain([
+                platform_message.Plain(text=f"Hello from LangBot Plugin!"),
+            ])
             
-            await event_context.reply(
-                platform_message.MessageChain([
-                    platform_message.Plain(text=f"Hello from LangBot Plugin!"),
-                ])
-            )
+            # await event_context.reply(
+            #     platform_message.MessageChain([
+            #         platform_message.Plain(text=f"Hello from LangBot Plugin!"),
+            #     ])
+            # )
