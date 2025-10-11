@@ -4,7 +4,7 @@ metadata:
   author: langbot-team
   name: GoogleSearch
   repository: ''
-  version: 0.1.1
+  version: 0.1.2
   description:
     en_US: Search A tool for performing a Google SERP search and extracting snippets
       and webpages.Input should be a search query.
@@ -20,6 +20,9 @@ spec:
       label:
         en_US: 'API key from SERP API'
         zh_Hans: 'SERP API 的 API 密钥'
+      description:
+        en_US: 'API key from SERP API, you can get it from https://serpapi.com/manage-api-key'
+        zh_Hans: 'SERP API 的 API 密钥，可以在 https://serpapi.com/manage-api-key 获取'
       required: true
       default: ''
   components:
