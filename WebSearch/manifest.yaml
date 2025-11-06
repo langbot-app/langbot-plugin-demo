@@ -3,7 +3,7 @@ kind: Plugin
 metadata:
   author: RockChinQ
   name: WebSearch
-  repository: ''
+  repository: 'https://github.com/langbot-app/langbot-plugin-demo'
   version: 0.1.0
   description:
     en_US: Tool for llm to search web
