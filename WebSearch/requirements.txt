@@ -1,0 +1,4 @@
+langbot-plugin
+beautifulsoup4
+PyYaml
+requests
