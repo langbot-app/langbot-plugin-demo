@@ -6,6 +6,7 @@ from typing import Any
 from tavily import TavilyClient
 
 from langbot_plugin.api.definition.components.tool.tool import Tool
+from langbot_plugin.api.entities.builtin.provider import session as provider_session
 
 
 class TavilySearchTool(Tool):
@@ -102,7 +103,7 @@ class TavilySearchTool(Tool):
 
         return "\n".join(output_lines)
 
-    async def call(self, params: dict[str, Any]) -> dict[str, Any] | str:
+    async def call(self, params: dict[str, Any], session: provider_session.Session, query_id: int) -> dict[str, Any] | str:
         """
         Execute the Tavily search.
 
