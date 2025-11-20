@@ -11,7 +11,7 @@ metadata:
   label:
     en_US: TavilySearch
     zh_Hans: TavilySearch
-  icon: assets/icon.svg
+  icon: assets/icon.png
 spec:
   config:
     - name: tavily_api_key

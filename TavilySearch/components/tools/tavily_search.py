@@ -141,8 +141,6 @@ class TavilySearchTool(Tool):
             # Format and return results
             formatted_text = self._format_results(search_results, params)
 
-            print(formatted_text)
-
             return formatted_text
 
         except Exception as e:
