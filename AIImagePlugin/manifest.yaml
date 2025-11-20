@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: Plugin
+metadata:
+  author: YourName
+  name: AIImagePlugin
+  repository: https://github.com/yourusername/AIImagePlugin
+  version: 0.1.0
+  description:
+    en_US: Compatible with OpenAI format image generation plugin
+    zh_Hans: 兼容使用 OpenAI 格式的绘图插件
+  label:
+    en_US: AI Image Generator
+    zh_Hans: AI 绘图生成器
+  icon: assets/icon.svg
+spec:
+  config:
+  - name: api_base_url
+    type: string
+    label:
+      en_US: API Base URL
+      zh_Hans: API 地址
+    description:
+      en_US: Base URL for OpenAI compatible API
+      zh_Hans: 兼容 OpenAI 格式的 API 地址
+    required: false
+    default: 'https://api.qhaigc.net'
+  - name: openai_api_key
+    type: string
+    label:
+      en_US: API Key
+      zh_Hans: API 密钥
+    description:
+      en_US: Get your API key from https://api.qhaigc.net/console/token
+      zh_Hans: 从 https://api.qhaigc.net/console/token 获取 API 密钥
+    required: true
+    default: ''
+  - name: model_name
+    type: string
+    label:
+      en_US: Model Name
+      zh_Hans: 模型名称
+    description:
+      en_US: Image generation model name
+      zh_Hans: 图片生成模型名称
+    required: false
+    default: 'qh-draw-x1-pro'
+  - name: image_size
+    type: select
+    label:
+      en_US: Image Size
+      zh_Hans: 图片尺寸
+    description:
+      en_US: Default size for generated images
+      zh_Hans: 生成图片的默认尺寸
+    options:
+    - name: 1024x1024
+      label:
+        en_US: Square 1:1 (1024x1024)
+        zh_Hans: 正方形 1:1 (1024x1024)
+    - name: 1280x1280
+      label:
+        en_US: Square 1:1 (1280x1280)
+        zh_Hans: 正方形 1:1 (1280x1280)
+    - name: 768x1280
+      label:
+        en_US: Portrait 3:5 (768x1280)
+        zh_Hans: 竖版 3:5 (768x1280)
+    - name: 1280x768
+      label:
+        en_US: Landscape 5:3 (1280x768)
+        zh_Hans: 横版 5:3 (1280x768)
+    - name: 720x1280
+      label:
+        en_US: Portrait 9:16 (720x1280)
+        zh_Hans: 竖版 9:16 (720x1280)
+    - name: 1280x720
+      label:
+        en_US: Landscape 16:9 (1280x720)
+        zh_Hans: 横版 16:9 (1280x720)
+    - name: 1024x768
+      label:
+        en_US: Landscape 4:3 (1024x768)
+        zh_Hans: 横版 4:3 (1024x768)
+    - name: 768x1024
+      label:
+        en_US: Portrait 3:4 (768x1024)
+        zh_Hans: 竖版 3:4 (768x1024)
+    default: 1024x1024
+    required: false
+  components:
+    Command:
+      fromDirs:
+      - path: components/commands/
+execution:
+  python:
+    path: main.py
+    attr: AIImagePlugin
