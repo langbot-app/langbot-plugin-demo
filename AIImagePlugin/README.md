@@ -1,61 +1,61 @@
-# AI 绘图插件
+# AI Image Generation Plugin
 
-## 简介
+## Introduction
 
-兼容使用 OpenAI 格式的绘图插件，支持任何兼容 OpenAI 图片生成 API 的服务。
+A drawing plugin compatible with OpenAI format, supporting any service that implements the OpenAI image generation API.
 
-## 功能特性
+## Features
 
-- ✅ 完全兼容 OpenAI 图片生成 API 格式
-- 🎨 支持自定义 API 地址和模型名称
-- 📐 支持多种图片尺寸比例
-- 🔧 灵活的配置选项
+- Fully compatible with OpenAI image generation API format
+- Support for custom API endpoint and model names
+- Multiple image aspect ratio options
+- Flexible configuration options
 
-## 配置说明
+## Configuration
 
-### API 配置
+### API Configuration
 
-- **API 地址**：默认为 `https://api.qhaigc.net`，可自定义为其他兼容 OpenAI 格式的 API 地址
-- **API 密钥**：从 [https://api.qhaigc.net/console/token](https://api.qhaigc.net/console/token) 获取
-- **模型名称**：可输入自定义模型名称，默认为 `qh-draw-x1-pro`
+- **API Endpoint**: Default is `https://api.qhaigc.net`, can be customized to other OpenAI-compatible API endpoints
+- **API Key**: Obtain from [https://api.qhaigc.net/console/token](https://api.qhaigc.net/console/token)
+- **Model Name**: Can input custom model name, default is `qh-draw-x1-pro`
 
-### 图片尺寸选项
+### Image Size Options
 
-支持以下图片尺寸：
+Supports the following image sizes:
 
-- 正方形 1:1 (1024x1024)
-- 正方形 1:1 (1280x1280)
-- 竖版 3:5 (768x1280)
-- 横版 5:3 (1280x768)
-- 竖版 9:16 (720x1280)
-- 横版 16:9 (1280x720)
-- 横版 4:3 (1024x768)
-- 竖版 3:4 (768x1024)
+- Square 1:1 (1024x1024)
+- Square 1:1 (1280x1280)
+- Portrait 3:5 (768x1280)
+- Landscape 5:3 (1280x768)
+- Portrait 9:16 (720x1280)
+- Landscape 16:9 (1280x720)
+- Landscape 4:3 (1024x768)
+- Portrait 3:4 (768x1024)
 
-## 使用方法
+## Usage
 
-使用 `!draw` 命令生成图片：
+Use the `!draw` command to generate images:
 
 ```bash
-# 生成图片
-!draw 一个美丽的日落风景
-!draw 一只坐在彩虹上的猫
+# Generate images
+!draw a beautiful sunset landscape
+!draw a cat sitting on a rainbow
 ```
 
-## 安装步骤
+## Installation Steps
 
-1. 在 LangBot 插件管理页面安装本插件
-2. 获取 API Key: [https://api.qhaigc.net/console/token](https://api.qhaigc.net/console/token)
-3. 在插件配置中填入 API Key
-4. 配置 API 地址、模型名称和默认图片尺寸（可选）
+1. Install this plugin from the LangBot plugin management page
+2. Obtain API Key: [https://api.qhaigc.net/console/token](https://api.qhaigc.net/console/token)
+3. Enter the API Key in the plugin configuration
+4. Configure API endpoint, model name, and default image size (optional)
 
-## 兼容性
+## Compatibility
 
-本插件兼容任何遵循 OpenAI 图片生成 API 规范的服务，包括但不限于：
+This plugin is compatible with any service that follows the OpenAI image generation API specification, including but not limited to:
 
 - OpenAI DALL-E 3
-- 其他兼容 OpenAI 格式的图片生成服务
+- Other OpenAI-compatible image generation services
 
-## 许可证
+## License
 
 MIT License
