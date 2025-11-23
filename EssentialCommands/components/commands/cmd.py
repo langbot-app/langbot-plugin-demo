@@ -52,3 +52,19 @@ Type `{command_prefix}cmd man <command>` for more detailed manual.
         )
         async def man(self: Cmd, context: ExecuteContext) -> AsyncGenerator[CommandReturn, None]:
             print(context)
+            
+            command_name = context.crt_params[0]
+            language = 'en_US'
+
+            commands = await self.plugin.list_commands()
+
+            command_manual = f'Command {command_name} not found'
+            for command in commands:
+                command_manifest = command['manifest']
+                if command_manifest['metadata']['name'] == command_name:
+                    command_manual = f'Command {command_name} manual:\n{command_manifest['metadata']['description'][language]}\n'
+                    break
+
+            yield CommandReturn(
+                text=command_manual
+            )
