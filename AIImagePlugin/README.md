@@ -1,61 +1,85 @@
-# AI Image Generation Plugin
+# AI 绘图插件
 
-## Introduction
+## 简介
 
-A drawing plugin compatible with OpenAI format, supporting any service that implements the OpenAI image generation API.
+兼容使用 OpenAI 格式的绘图插件，支持任何兼容 OpenAI 图片生成 API 的服务。
 
-## Features
+## 功能特性
 
-- Fully compatible with OpenAI image generation API format
-- Support for custom API endpoint and model names
-- Multiple image aspect ratio options
-- Flexible configuration options
+- ✅ 完全兼容 OpenAI 图片生成 API 格式
+- 🎨 支持自定义 API 地址和模型名称
+- 📐 支持多种图片尺寸比例
+- 🔧 灵活的配置选项
 
-## Configuration
+## 配置说明
 
-### API Configuration
+### API 配置
 
-- **API Endpoint**: Default is `https://api.qhaigc.net`, can be customized to other OpenAI-compatible API endpoints
-- **API Key**: Obtain from [https://api.qhaigc.net/console/token](https://api.qhaigc.net/console/token)
-- **Model Name**: Can input custom model name, default is `qh-draw-x1-pro`
+- **API 地址**：默认为 `https://api.qhaigc.net`，可自定义为其他兼容 OpenAI 格式的 API 地址
+- **API 密钥**：从 [https://api.qhaigc.net/console/token](https://api.qhaigc.net/console/token) 获取
+- **模型名称**：可输入自定义模型名称，默认为 `qh-draw-x1-pro`
 
-### Image Size Options
+### 图片尺寸选项
 
-Supports the following image sizes:
+支持以下图片尺寸：
 
-- Square 1:1 (1024x1024)
-- Square 1:1 (1280x1280)
-- Portrait 3:5 (768x1280)
-- Landscape 5:3 (1280x768)
-- Portrait 9:16 (720x1280)
-- Landscape 16:9 (1280x720)
-- Landscape 4:3 (1024x768)
-- Portrait 3:4 (768x1024)
+- 正方形 1:1 (1024x1024)
+- 正方形 1:1 (1280x1280)
+- 竖版 3:5 (768x1280)
+- 横版 5:3 (1280x768)
+- 竖版 9:16 (720x1280)
+- 横版 16:9 (1280x720)
+- 横版 4:3 (1024x768)
+- 竖版 3:4 (768x1024)
 
-## Usage
+## 使用方法
 
-Use the `!draw` command to generate images:
+使用 `!draw` 命令生成图片：
 
 ```bash
-# Generate images
-!draw a beautiful sunset landscape
-!draw a cat sitting on a rainbow
+# 生成图片
+!draw 一个美丽的日落风景
+!draw 一只坐在彩虹上的猫
 ```
 
-## Installation Steps
+## 安装步骤
 
-1. Install this plugin from the LangBot plugin management page
-2. Obtain API Key: [https://api.qhaigc.net/console/token](https://api.qhaigc.net/console/token)
-3. Enter the API Key in the plugin configuration
-4. Configure API endpoint, model name, and default image size (optional)
+1. 在 LangBot 插件管理页面安装本插件
+2. 获取 API Key: [https://api.qhaigc.net/console/token](https://api.qhaigc.net/console/token)
+3. 在插件配置中填入 API Key
+4. 配置 API 地址、模型名称和默认图片尺寸（可选）
 
-## Compatibility
+## 支持的模型
 
-This plugin is compatible with any service that follows the OpenAI image generation API specification, including but not limited to:
+### Nano Banana 系列
+
+- **Nano Banana 1**（2025年8月发布）：谷歌DeepMind推出的图像生成模型，基于Gemini 2.5 Flash架构，参数量4.5亿-80亿。核心优势是角色一致性，支持多图像融合和局部编辑。在LMArena图像编辑榜以1362分居首，广泛应用于电商、设计、教育等领域。
+
+- **Nano Banana 2**（2025年11月发布）：初代全面升级版，支持原生2K分辨率，可选4K超分。生成速度比初代提升300%，复杂场景仅需10秒。在中文文本渲染、数学公式推导方面实现重大突破，能够理解物理逻辑和世界知识。采用"认知+生成"混合架构，为创意行业带来生产力革命。
+
+### 启航 AI 绘图系列
+
+- **qh-draw-3d**：专注于生成流行的3D风格图像，特点是比较精致的3D模型、3D的画面表现较好。
+
+- **qh-draw-4d**：专注于生成流行的4D风格图像，特点是比较精致的4D模型、4D的画面表现较好，接近真实但是不会生成真实照片。
+
+- **qh-draw-x1-pro**：启航AI绘图 x1-pro 模型，基于SD开源模型的 AI 绘图能力，支持自然语言理解。
+
+- **qh-draw-x2-preview**：自研的专业级绘图模型 V2.0。在 x1-pro 的基础上增强了语言理解和综合绘图能力，能更好地适应多种任务。
+
+- **qh-draw:韩漫风**：专精于生成经典二次元韩国漫画风格的图像，色彩鲜明，线条流畅，能够精准进行韩式漫画的与场景氛围。
+
+### 可用模型列表
+
+`nano-banana-1`, `nano-banana-2`, `qh-draw-3d`, `qh-draw-4d`, `qh-draw-x1-pro`, `qh-draw-x2-preview`, `qh-draw:韩漫风`
+
+## 兼容性
+
+本插件兼容任何遵循 OpenAI 图片生成 API 规范的服务，包括但不限于：
 
 - OpenAI DALL-E 3
-- Other OpenAI-compatible image generation services
+- 其他兼容 OpenAI 格式的图片生成服务
 
-## License
+## 许可证
 
 MIT License

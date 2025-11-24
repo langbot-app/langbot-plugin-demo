@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: Plugin
 metadata:
-  author: YourName
+  author: langbot-team
   name: AIImagePlugin
-  repository: https://github.com/yourusername/AIImagePlugin
-  version: 0.1.0
+  repository: https://github.com/langbot-app/langbot-plugin-demo/tree/main/AIImagePlugin
+  version: 0.1.1
   description:
     en_US: Compatible with OpenAI format image generation plugin
     zh_Hans: 兼容使用 OpenAI 格式的绘图插件
@@ -23,7 +23,7 @@ spec:
       en_US: Base URL for OpenAI compatible API
       zh_Hans: 兼容 OpenAI 格式的 API 地址
     required: false
-    default: 'https://api.qhaigc.net'
+    default: 'https://api.qhaigc.net/v1'
   - name: openai_api_key
     type: string
     label:
@@ -35,15 +35,44 @@ spec:
     required: true
     default: ''
   - name: model_name
-    type: string
+    type: select
     label:
       en_US: Model Name
       zh_Hans: 模型名称
     description:
       en_US: Image generation model name
       zh_Hans: 图片生成模型名称
+    options:
+    - name: nano-banana-1
+      label:
+        en_US: nano-banana-1
+        zh_Hans: nano-banana-1
+    - name: nano-banana-2
+      label:
+        en_US: nano-banana-2
+        zh_Hans: nano-banana-2
+    - name: qh-draw-3d
+      label:
+        en_US: qh-draw-3d
+        zh_Hans: qh-draw-3d
+    - name: qh-draw-4d
+      label:
+        en_US: qh-draw-4d
+        zh_Hans: qh-draw-4d
+    - name: qh-draw-x1-pro
+      label:
+        en_US: qh-draw-x1-pro
+        zh_Hans: qh-draw-x1-pro
+    - name: qh-draw-x2-preview
+      label:
+        en_US: qh-draw-x2-preview
+        zh_Hans: qh-draw-x2-preview
+    - name: qh-draw:韩漫风
+      label:
+        en_US: qh-draw:韩漫风
+        zh_Hans: qh-draw:韩漫风
+    default: qh-draw-x1-pro
     required: false
-    default: 'qh-draw-x1-pro'
   - name: image_size
     type: select
     label:
