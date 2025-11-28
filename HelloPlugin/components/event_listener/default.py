@@ -20,12 +20,49 @@ class DefaultEventListener(EventListener):
 
             event_context.prevent_default()
 
-            event_context.event.reply_message_chain = platform_message.MessageChain([
-                platform_message.Plain(text=f"Hello from LangBot Plugin!"),
-            ])
+            # event_context.event.reply_message_chain = platform_message.MessageChain([
+            #     platform_message.Plain(text=f"Hello from LangBot Plugin!"),
+            # ])
             
-            # await event_context.reply(
-            #     platform_message.MessageChain([
-            #         platform_message.Plain(text=f"Hello from LangBot Plugin!"),
-            #     ])
-            # )
+            # Simple text response
+            await event_context.reply(
+                platform_message.MessageChain([
+                    platform_message.Plain(text=f"Hello from LangBot Plugin! 1"),
+                ])
+            )
+
+            # Comprehensive test message with various components
+            await event_context.reply(
+                platform_message.MessageChain([
+                    platform_message.Plain(text="这是一条测试消息，包含多种组件类型：\n"),
+                    platform_message.Plain(text="1. 文本消息 "),
+                    platform_message.At(target=event_context.event.sender_id, display="@你"),
+                    platform_message.Plain(text="\n2. At某人\n"),
+                    platform_message.Plain(text="3. 图片（示例）\n"),
+                    platform_message.Image(url="https://docs.langbot.app/social_zh.png"),
+                    platform_message.Plain(text="\n4. 语音（示例）\n"),
+                    platform_message.Voice(
+                        url="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+                        length=60
+                    ),
+                    platform_message.Plain(text="\n5. 文件（示例）\n"),
+                    platform_message.File(
+                        name="test_document.pdf",
+                        size=1024000,
+                        url="https://example.com/test.pdf"
+                    ),
+                    platform_message.Plain(text="\n✅ 所有组件测试完成！"),
+                ])
+            )
+
+            # Test message with Quote component
+            await event_context.reply(
+                platform_message.MessageChain([
+                    platform_message.Quote(
+                        id=event_context.event.message_chain.message_id,
+                        sender_id=event_context.event.sender_id,
+                        origin=[platform_message.Plain(text="引用原消息")]
+                    ),
+                    platform_message.Plain(text="这是一条带引用的回复消息"),
+                ])
+            )
