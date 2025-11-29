@@ -50,20 +50,10 @@ class Draw(Command):
             # 获取结果
             image_url = response.data[0].url
             
-            # 尝试获取 revised_prompt，某些 API 可能不返回此字段
-            revised_prompt = getattr(response.data[0], 'revised_prompt', None)
-            
-            # 返回图片
-            if revised_prompt:
-                yield CommandReturn(
-                    text=f"✅ 图片生成成功！\n优化后的提示词: {revised_prompt}",
-                    image_url=image_url
-                )
-            else:
-                yield CommandReturn(
-                    text=f"✅ 图片生成成功！",
-                    image_url=image_url
-                )
+            yield CommandReturn(
+                text=f"✅ 图片生成成功！",
+                image_url=image_url
+            )
             
         except Exception as e:
             yield CommandReturn(
