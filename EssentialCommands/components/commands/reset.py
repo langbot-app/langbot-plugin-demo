@@ -7,12 +7,17 @@ from typing import Any, AsyncGenerator
 from langbot_plugin.api.definition.components.command.command import Command, Subcommand
 from langbot_plugin.api.entities.builtin.command.context import ExecuteContext, CommandReturn
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+from i18n import get_text
+
 
 class Reset(Command):
-    
+
     async def initialize(self):
         await super().initialize()
-        
+
         @self.subcommand(
             name="",
             help="Reset the plugin",
@@ -20,7 +25,9 @@ class Reset(Command):
         )
         async def _(self: Reset, context: ExecuteContext) -> AsyncGenerator[CommandReturn, None]:
             await context.create_new_conversation()
-            
+
+            language = self.plugin.get_language()
+
             yield CommandReturn(
-                text="Session reset"
+                text=get_text(language, "reset.success")
             )

@@ -7,25 +7,24 @@ from typing import Any, AsyncGenerator
 from langbot_plugin.api.definition.components.command.command import Command, Subcommand
 from langbot_plugin.api.entities.builtin.command.context import ExecuteContext, CommandReturn
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+from i18n import get_text
+
 
 class Plugin(Command):
-    
+
     async def initialize(self):
         await super().initialize()
-        
+
         @self.subcommand(
             name="",
             help="List all loaded plugins",
             usage="plugin",
         )
         async def _(self: Plugin, context: ExecuteContext) -> AsyncGenerator[CommandReturn, None]:
-            language = 'en_US'
-
-            output_template = """
-Loaded Plugins:
-
-{plugin_list}
-            """.strip()
+            language = self.plugin.get_language()
 
             plugins = await self.plugin.list_plugins_manifest()
 
@@ -33,8 +32,13 @@ Loaded Plugins:
 
             for plugin in plugins:
                 plugin_manifest = plugin['manifest']
-                plugin_list_str += f"{plugin_manifest['metadata']['name']} - {plugin_manifest['metadata']['description'][language]}\n\n"
+                name = plugin_manifest['metadata']['name']
+                description = plugin_manifest['metadata']['description'][language]
+                plugin_list_str += get_text(language, "plugin.item", name=name, description=description) + "\n\n"
+
+            title = get_text(language, "plugin.title")
+            output = f"{title}\n\n{plugin_list_str}"
 
             yield CommandReturn(
-                text=output_template.format(plugin_list=plugin_list_str)
+                text=output
             )

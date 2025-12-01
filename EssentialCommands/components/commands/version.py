@@ -7,21 +7,27 @@ from typing import Any, AsyncGenerator
 from langbot_plugin.api.definition.components.command.command import Command, Subcommand
 from langbot_plugin.api.entities.builtin.command.context import ExecuteContext, CommandReturn
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+from i18n import get_text
+
 
 class Version(Command):
-    
+
     async def initialize(self):
         await super().initialize()
-        
+
         @self.subcommand(
             name="",
             help="Show the version of the plugin",
             usage="version",
         )
         async def _(self: Version, context: ExecuteContext) -> AsyncGenerator[CommandReturn, None]:
-            
+
             version = await self.plugin.get_langbot_version()
+            language = self.plugin.get_language()
 
             yield CommandReturn(
-                text=f"LangBot Version: {version}"
+                text=get_text(language, "version.output", version=version)
             )

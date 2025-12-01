@@ -7,26 +7,25 @@ from typing import Any, AsyncGenerator
 from langbot_plugin.api.definition.components.command.command import Command, Subcommand
 from langbot_plugin.api.entities.builtin.command.context import ExecuteContext, CommandReturn
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+from i18n import get_text
+
 
 class Func(Command):
-    
+
     async def initialize(self):
         await super().initialize()
-        
+
         @self.subcommand(
             name="",
             help="Show all registered LLM tools",
             usage="func",
         )
         async def _(self: Func, context: ExecuteContext) -> AsyncGenerator[CommandReturn, None]:
-            
-            language = 'en_US'
 
-            output_template = """
-Available LLM Tools:
-
-{tool_list}
-            """.strip()
+            language = self.plugin.get_language()
 
             tools = await self.plugin.list_tools()
 
@@ -34,8 +33,14 @@ Available LLM Tools:
 
             for tool in tools:
                 tool_manifest = tool['manifest']
-                tool_list_str += f"{tool_manifest['metadata']['name']} - {tool_manifest['metadata']['description'][language]}\n - Prompt: {tool_manifest['spec']['llm_prompt']}\n"
+                name = tool_manifest['metadata']['name']
+                description = tool_manifest['metadata']['description'][language]
+                prompt = tool_manifest['spec']['llm_prompt']
+                tool_list_str += get_text(language, "func.tool_item", name=name, description=description, prompt=prompt) + "\n"
+
+            title = get_text(language, "func.title")
+            output = f"{title}\n\n{tool_list_str}"
 
             yield CommandReturn(
-                text=output_template.format(tool_list=tool_list_str)
+                text=output
             )

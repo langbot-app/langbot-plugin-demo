@@ -8,6 +8,15 @@ class EssentialCommands(BasePlugin):
 
     def __init__(self):
         super().__init__()
+        self.language = 'en_US'  # Default language
 
     async def initialize(self) -> None:
-        pass
+        print(self.config)
+        # Get language from config
+        if self.config and 'language' in self.config:
+            self.language = self.config['language']
+        print(f"EssentialCommands language set to: {self.language}")
+
+    def get_language(self) -> str:
+        """Get the configured language."""
+        return self.language

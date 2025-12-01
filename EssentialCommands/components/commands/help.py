@@ -7,12 +7,17 @@ from typing import AsyncGenerator
 from langbot_plugin.api.definition.components.command.command import Command, Subcommand
 from langbot_plugin.api.entities.builtin.command.context import ExecuteContext, CommandReturn
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+from i18n import get_text
+
 
 class Help(Command):
-    
+
     async def initialize(self):
         await super().initialize()
-        
+
         @self.subcommand(
             name="",
             help="Show the help of a command",
@@ -20,19 +25,16 @@ class Help(Command):
         )
         async def _(self: Help, context: ExecuteContext) -> AsyncGenerator[CommandReturn, None]:
             print(context)
-            
+
             assume_command_prefix = context.full_command_text[0]
-            
-            language = 'en_US'
+            language = self.plugin.get_language()
 
-            help_message = """
-LangBot - Easy-to-use global IM bot platform designed for LLM era
+            title = get_text(language, "help.title")
+            website = get_text(language, "help.website")
+            tip = get_text(language, "help.command_tip", command_prefix=assume_command_prefix)
 
-- https://langbot.app
-
-Type `{command_prefix}cmd` for command usage.
-            """.strip()
+            help_message = f"{title}\n\n- {website}\n\n{tip}"
 
             yield CommandReturn(
-                text=help_message.format(command_prefix=assume_command_prefix)
+                text=help_message
             )

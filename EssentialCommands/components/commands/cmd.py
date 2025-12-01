@@ -9,12 +9,17 @@ from typing import Any, AsyncGenerator
 from langbot_plugin.api.definition.components.command.command import Command, Subcommand
 from langbot_plugin.api.entities.builtin.command.context import ExecuteContext, CommandReturn
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+from i18n import get_text
+
 
 class Cmd(Command):
-    
+
     async def initialize(self):
         await super().initialize()
-        
+
         @self.subcommand(
             name="",
             help="Show all registered command",
@@ -23,15 +28,7 @@ class Cmd(Command):
         async def _(self: Cmd, context: ExecuteContext) -> AsyncGenerator[CommandReturn, None]:
 
             assume_command_prefix = context.full_command_text[0]
-
-            language = 'en_US'
-
-            output_template = """
-Available Commands:
-
-{command_list}
-Type `{command_prefix}cmd man <command>` for more detailed manual.
-            """.strip()
+            language = self.plugin.get_language()
 
             commands = await self.plugin.list_commands()
 
@@ -41,10 +38,14 @@ Type `{command_prefix}cmd man <command>` for more detailed manual.
                 command_manifest = command['manifest']
                 command_list_str += f"{assume_command_prefix}{command_manifest['metadata']['name']} - {command_manifest['metadata']['description'][language]}\n"
 
+            title = get_text(language, "cmd.title")
+            tip = get_text(language, "cmd.tip", command_prefix=assume_command_prefix)
+            output = f"{title}\n\n{command_list_str}\n{tip}"
+
             yield CommandReturn(
-                text=output_template.format(command_list=command_list_str, command_prefix=assume_command_prefix)
+                text=output
             )
-        
+
         @self.subcommand(
             name="man",
             help="Show the manual of a command",
@@ -52,17 +53,18 @@ Type `{command_prefix}cmd man <command>` for more detailed manual.
         )
         async def man(self: Cmd, context: ExecuteContext) -> AsyncGenerator[CommandReturn, None]:
             print(context)
-            
+
             command_name = context.crt_params[0]
-            language = 'en_US'
+            language = self.plugin.get_language()
 
             commands = await self.plugin.list_commands()
 
-            command_manual = f"Command {command_name} not found"
+            command_manual = get_text(language, "cmd.man_not_found", command_name=command_name)
             for command in commands:
                 command_manifest = command['manifest']
                 if command_manifest['metadata']['name'] == command_name:
-                    command_manual = f"Command {command_name} manual:\n{command_manifest['metadata']['description'][language]}\n"
+                    description = command_manifest['metadata']['description'][language]
+                    command_manual = get_text(language, "cmd.man_title", command_name=command_name, description=description)
                     break
 
             yield CommandReturn(
