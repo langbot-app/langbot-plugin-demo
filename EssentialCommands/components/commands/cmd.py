@@ -52,7 +52,6 @@ class Cmd(Command):
             usage="cmd man <command>",
         )
         async def man(self: Cmd, context: ExecuteContext) -> AsyncGenerator[CommandReturn, None]:
-            print(context)
 
             command_name = context.crt_params[0]
             language = self.plugin.get_language()

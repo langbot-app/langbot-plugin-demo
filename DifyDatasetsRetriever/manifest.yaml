@@ -4,7 +4,7 @@ metadata:
   author: langbot-team
   name: DifyDatasetsRetriever
   repository: ''
-  version: 0.1.0
+  version: 0.1.1
   description:
     en_US: Retriever knowledge from Dify knowledge bases
     zh_Hans: 从 Dify 知识库中检索知识

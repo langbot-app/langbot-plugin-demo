@@ -11,7 +11,6 @@ class EssentialCommands(BasePlugin):
         self.language = 'en_US'  # Default language
 
     async def initialize(self) -> None:
-        print(self.config)
         # Get language from config
         if self.config and 'language' in self.config:
             self.language = self.config['language']

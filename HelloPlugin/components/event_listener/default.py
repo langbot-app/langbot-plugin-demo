@@ -2,6 +2,8 @@
 # Please refer to https://docs.langbot.app/en/plugin/dev/tutor.html for more details.
 from __future__ import annotations
 
+import base64
+
 from langbot_plugin.api.definition.components.common.event_listener import EventListener
 from langbot_plugin.api.entities import events, context
 from langbot_plugin.api.entities.builtin.platform import message as platform_message
@@ -13,56 +15,76 @@ class DefaultEventListener(EventListener):
     def __init__(self):
         super().__init__()
         
+        @self.handler(events.GroupNormalMessageReceived)
         @self.handler(events.PersonNormalMessageReceived)
         async def handler(event_context: context.EventContext):
             print("Hello LangBot Plugin!")
-            print(event_context)
 
-            event_context.prevent_default()
+            event_context.event.user_message_alter = provider_message.ContentElement.from_text("Hello from LangBot Plugin!")
 
-            # event_context.event.reply_message_chain = platform_message.MessageChain([
-            #     platform_message.Plain(text=f"Hello from LangBot Plugin!"),
-            # ])
+            # event_context.prevent_default()
+
+            # # event_context.event.reply_message_chain = platform_message.MessageChain([
+            # #     platform_message.Plain(text=f"Hello from LangBot Plugin!"),
+            # # ])
             
-            # Simple text response
-            await event_context.reply(
-                platform_message.MessageChain([
-                    platform_message.Plain(text=f"Hello from LangBot Plugin! 1"),
-                ])
-            )
+            # # Simple text response
+            # # await event_context.reply(
+            # #     platform_message.MessageChain([
+            # #         platform_message.Plain(text=f"Hello from LangBot Plugin! 1"),
+            # #     ])
+            # # )
+            # # raw_message_event = event_context.event.message_event
 
-            # Comprehensive test message with various components
-            await event_context.reply(
-                platform_message.MessageChain([
-                    platform_message.Plain(text="这是一条测试消息，包含多种组件类型：\n"),
-                    platform_message.Plain(text="1. 文本消息 "),
-                    platform_message.At(target=event_context.event.sender_id, display="@你"),
-                    platform_message.Plain(text="\n2. At某人\n"),
-                    platform_message.Plain(text="3. 图片（示例）\n"),
-                    platform_message.Image(url="https://docs.langbot.app/social_zh.png"),
-                    platform_message.Plain(text="\n4. 语音（示例）\n"),
-                    platform_message.Voice(
-                        url="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-                        length=60
-                    ),
-                    platform_message.Plain(text="\n5. 文件（示例）\n"),
-                    platform_message.File(
-                        name="test_document.pdf",
-                        size=1024000,
-                        url="https://example.com/test.pdf"
-                    ),
-                    platform_message.Plain(text="\n✅ 所有组件测试完成！"),
-                ])
-            )
+            # # print(raw_message_event)
 
-            # Test message with Quote component
-            await event_context.reply(
-                platform_message.MessageChain([
-                    platform_message.Quote(
-                        id=event_context.event.message_chain.message_id,
-                        sender_id=event_context.event.sender_id,
-                        origin=[platform_message.Plain(text="引用原消息")]
-                    ),
-                    platform_message.Plain(text="这是一条带引用的回复消息"),
-                ])
-            )
+            # with open("assets/image.png", "rb") as f:
+            #     image_data = f.read()
+            #     image_base64 = base64.b64encode(image_data).decode("utf-8")
+            #     # image = platform_message.Image(base64=f"data:image/png;base64,{image_base64}")
+            #     image = platform_message.Image(url="https://docs.langbot.app/langbot-logo.png")
+            
+            # with open("assets/rec.wav", "rb") as f:
+            #     voice_data = f.read()
+            #     voice_base64 = base64.b64encode(voice_data).decode("utf-8")
+            #     voice = platform_message.Voice(base64=f"data:audio/wav;base64,{voice_base64}")
+
+            # # Comprehensive test message with various components
+            # await event_context.reply(
+
+            #     platform_message.MessageChain([
+            #         platform_message.Plain(text=f"Hello\n"),
+            #         platform_message.Plain(text="This is a test message, containing various component types:\n"),
+            #         platform_message.Plain(text="1. Text message "),
+            #         # platform_message.At(target=event_context.event.sender_id, display="@you"),
+            #         platform_message.Plain(text="\n2. At someone\n"),
+            #         platform_message.Plain(text="3. Image (example)\n"),
+            #         image,
+            #         platform_message.Plain(text="\n4. Voice (example)\n"),
+            #         voice,
+            #         platform_message.Plain(text="\n5. File (example)\n"),
+            #         platform_message.Plain(text="\n✅ All components tested successfully!"),
+            #     ])
+            # )
+
+            # await event_context.reply(
+            #     platform_message.MessageChain([
+            #         platform_message.File(
+            #             name=".mcp.json",
+            #             size=1024000,
+            #             url="https://raw.githubusercontent.com/langbot-app/LangBot/refs/heads/master/.mcp.json"
+            #         ),
+            #     ])
+            # )
+
+            # # Test message with Quote component
+            # await event_context.reply(
+            #     platform_message.MessageChain([
+            #         platform_message.Quote(
+            #             id=event_context.event.message_chain.message_id,
+            #             sender_id=event_context.event.sender_id,
+            #             origin=[platform_message.Plain(text="Quote the original message")]
+            #         ),
+            #         platform_message.Plain(text="This is a quoted reply message"),
+            #     ])
+            # )

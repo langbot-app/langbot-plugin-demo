@@ -24,7 +24,6 @@ class Help(Command):
             usage="help <command>",
         )
         async def _(self: Help, context: ExecuteContext) -> AsyncGenerator[CommandReturn, None]:
-            print(context)
 
             assume_command_prefix = context.full_command_text[0]
             language = self.plugin.get_language()

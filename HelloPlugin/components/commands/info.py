@@ -20,7 +20,6 @@ class Info(Command):
             aliases=["i"], # command aliases
         )
         async def send(self, context: ExecuteContext) -> AsyncGenerator[CommandReturn, None]:
-            print(context)
 
             reply_text = f"Query ID: {context.query_id}\n"
             reply_text += f"command: {context.command}\n"
@@ -29,6 +28,8 @@ class Info(Command):
             reply_text += f"crt_params: {context.crt_params}\n"
             reply_text += f"privilege: {context.privilege}\n"
             reply_text += f"session: {context.session.launcher_type.value}_{context.session.launcher_id}\n"
+
+            print(f"发起者ID{context.session.launcher_id}发送者ID{context.session.sender_id}消息类型{context.session.launcher_type}")
             
             yield CommandReturn(
                 text=reply_text,
@@ -41,7 +42,6 @@ class Info(Command):
             aliases=["f"],
         )
         async def field(self, context: ExecuteContext) -> AsyncGenerator[CommandReturn, None]:
-            print(context)
 
             field_name = context.crt_params[0]
             field_value = getattr(context, field_name)
