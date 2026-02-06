@@ -1,2 +1,2 @@
-langbot-plugin
+langbot-plugin>=0.2.5
 httpx
