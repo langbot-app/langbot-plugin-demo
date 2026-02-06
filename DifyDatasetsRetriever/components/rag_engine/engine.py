@@ -160,6 +160,7 @@ class DifyRAGEngine(RAGEngine):
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(url, json=payload, headers=headers, timeout=30.0)
+                response.raise_for_status()
                 data = response.json()
                 
                 for record in data.get('records', []):
