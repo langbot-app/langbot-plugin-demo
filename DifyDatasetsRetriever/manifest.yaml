@@ -17,7 +17,7 @@ metadata:
 spec:
   config: []
   components:
-    DifyRAGEngine:
+    RAGEngine:
       fromFiles:
         - components/rag_engine/dify.yaml
 execution:
