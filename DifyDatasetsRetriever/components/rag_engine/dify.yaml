@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: RAGEngine
+metadata:
+  name: dify-rag
+  label:
+    en_US: Dify Knowledge Base
+    zh_Hans: Dify 知识库
+  description:
+    en_US: Retrieve knowledge from Dify knowledge bases
+    zh_Hans: 从 Dify 知识库中检索知识
+spec:
+  creation_schema: [] # Schema is defined in python code via get_creation_settings_schema
+execution:
+  python:
+    path: engine.py
+    attr: DifyRAGEngine
