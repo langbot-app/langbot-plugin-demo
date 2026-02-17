@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import httpx
 
@@ -30,82 +29,6 @@ class DifyRAGEngine(RAGEngine):
     @classmethod
     def get_capabilities(cls) -> list[str]:
         # No DOC_INGESTION: documents are managed in Dify, not via LangBot.
-        return []
-
-    # ========== Schema Definitions ==========
-
-    def get_creation_settings_schema(self) -> list[dict[str, Any]]:
-        """Return the schema for creating a Dify-backed Knowledge Base."""
-        return [
-            {
-                "name": "api_base_url",
-                "label": {
-                    "en_US": "API Base URL",
-                    "zh_Hans": "API 基础地址",
-                },
-                "description": {
-                    "en_US": "The base URL of Dify API (e.g. https://api.dify.ai/v1)",
-                    "zh_Hans": "Dify API 的基础地址 (例如 https://api.dify.ai/v1)",
-                },
-                "type": "string",
-                "default": "https://api.dify.ai/v1",
-                "required": True,
-            },
-            {
-                "name": "dify_apikey",
-                "label": {
-                    "en_US": "API Key",
-                    "zh_Hans": "API 密钥",
-                },
-                "description": {
-                    "en_US": "Your Dify Dataset API Key",
-                    "zh_Hans": "您的 Dify 知识库 API 密钥",
-                },
-                "type": "password",
-                "required": True,
-            },
-            {
-                "name": "dataset_id",
-                "label": {
-                    "en_US": "Dataset ID",
-                    "zh_Hans": "数据集 ID",
-                },
-                "description": {
-                    "en_US": "The UUID of the Dify Dataset to retrieve from",
-                    "zh_Hans": "要检索的 Dify 数据集 UUID",
-                },
-                "type": "string",
-                "required": True,
-            },
-            {
-                "name": "search_method",
-                "label": {
-                    "en_US": "Search Method",
-                    "zh_Hans": "检索模式",
-                },
-                "type": "select",
-                "default": "keyword_search",
-                "options": [
-                    {"label": {"en_US": "Keyword Search", "zh_Hans": "关键词检索"}, "name": "keyword_search"},
-                    {"label": {"en_US": "Semantic Search", "zh_Hans": "语义检索"}, "name": "semantic_search"},
-                    {"label": {"en_US": "Hybrid Search", "zh_Hans": "混合检索"}, "name": "hybrid_search"},
-                ],
-                "required": False,
-            },
-            {
-                "name": "score_threshold",
-                "label": {
-                    "en_US": "Score Threshold",
-                    "zh_Hans": "分数阈值",
-                },
-                "type": "float",
-                "default": 0.5,
-                "required": False,
-            },
-        ]
-
-    def get_retrieval_settings_schema(self) -> list[dict[str, Any]]:
-        """Return schema for retrieval-time parameters."""
         return []
 
     # ========== Core Methods ==========
