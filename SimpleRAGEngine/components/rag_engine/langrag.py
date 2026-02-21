@@ -128,10 +128,11 @@ class LangRAG(RAGEngine):
                 )
 
             # 4. Embed in batches to avoid IPC timeouts
+            embedding_model_uuid = context.custom_settings.get("embedding_model_uuid", "")
             vectors: list[list[float]] = []
             for i in range(0, len(chunks), EMBEDDING_BATCH_SIZE):
                 batch = chunks[i : i + EMBEDDING_BATCH_SIZE]
-                batch_vectors = await self.plugin.rag_embed_documents(context.knowledge_base_id, batch)
+                batch_vectors = await self.plugin.invoke_embedding(embedding_model_uuid, batch)
                 vectors.extend(batch_vectors)
 
             # 5. Build metadata and upsert to vector store
@@ -174,8 +175,10 @@ class LangRAG(RAGEngine):
         top_k = context.get_top_k()
         collection_id = context.get_collection_id()
 
-        # 1. Embed query (Host selects the embedding model by KB ID)
-        query_vector = await self.plugin.rag_embed_query(context.knowledge_base_id, query)
+        # 1. Embed query
+        embedding_model_uuid = context.creation_settings.get("embedding_model_uuid", "")
+        query_vectors = await self.plugin.invoke_embedding(embedding_model_uuid, [query])
+        query_vector = query_vectors[0]
 
         # 2. Vector search
         results = await self.plugin.rag_vector_search(
@@ -207,6 +210,6 @@ class LangRAG(RAGEngine):
         """Delete a document's vectors by file_id."""
         count = await self.plugin.rag_vector_delete(
             collection_id=kb_id,
-            ids=[document_id],
+            file_ids=[document_id],
         )
         return count > 0
