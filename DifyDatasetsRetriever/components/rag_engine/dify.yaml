@@ -72,6 +72,18 @@ spec:
             zh_Hans: 混合检索
             ja_JP: ハイブリッド検索
       required: false
+    - name: top_k
+      label:
+        en_US: Top K
+        zh_Hans: 返回数量
+        ja_JP: 取得件数
+      description:
+        en_US: 'Maximum number of results to return'
+        zh_Hans: '返回的最大结果数量'
+        ja_JP: '返す結果の最大数'
+      type: integer
+      default: 5
+      required: false
     - name: score_threshold
       label:
         en_US: Score Threshold

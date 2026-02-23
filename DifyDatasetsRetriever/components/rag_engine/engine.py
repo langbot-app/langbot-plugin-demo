@@ -40,7 +40,7 @@ class DifyRAGEngine(RAGEngine):
         api_base_url = config.get("api_base_url", "https://api.dify.ai/v1").rstrip("/")
         api_key = config.get("dify_apikey")
         dataset_id = config.get("dataset_id")
-        top_k = context.get_top_k()
+        top_k = config.get("top_k", 5)
         score_threshold = config.get("score_threshold", 0.5)
         search_method = config.get("search_method", "keyword_search")
 
