@@ -9,6 +9,7 @@ from langbot_plugin.api.entities.builtin.rag import (
     RetrievalResponse,
     RetrievalResultEntry,
     DocumentStatus,
+    SearchType,
 )
 
 from .parser import FileParser
@@ -153,6 +154,7 @@ class LangRAG(RAGEngine):
                 vectors=vectors,
                 ids=ids,
                 metadata=metadatas,
+                documents=chunks,
             )
 
             return IngestionResult(
@@ -170,21 +172,27 @@ class LangRAG(RAGEngine):
             )
 
     async def retrieve(self, context: RetrievalContext) -> RetrievalResponse:
-        """Retrieve relevant content: Embed query -> Vector search -> Format results."""
+        """Retrieve relevant content with support for vector, full-text, and hybrid search."""
         query = context.query
         top_k = context.retrieval_settings.get("top_k", 5)
         collection_id = context.get_collection_id()
+        search_type = context.retrieval_settings.get("search_type", SearchType.VECTOR)
 
-        # 1. Embed query
-        embedding_model_uuid = context.creation_settings.get("embedding_model_uuid", "")
-        query_vectors = await self.plugin.invoke_embedding(embedding_model_uuid, [query])
-        query_vector = query_vectors[0]
+        # 1. Embed query (skip for pure full-text search)
+        query_vector: list[float] = []
+        if search_type != SearchType.FULL_TEXT:
+            embedding_model_uuid = context.creation_settings.get("embedding_model_uuid", "")
+            query_vectors = await self.plugin.invoke_embedding(embedding_model_uuid, [query])
+            query_vector = query_vectors[0]
 
-        # 2. Vector search
+        # 2. Search
         results = await self.plugin.vector_search(
             collection_id=collection_id,
             query_vector=query_vector,
             top_k=top_k,
+            filters=context.filters or None,
+            search_type=search_type,
+            query_text=query,
         )
 
         # 3. Format results
