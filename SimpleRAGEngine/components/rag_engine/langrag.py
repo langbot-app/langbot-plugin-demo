@@ -9,6 +9,7 @@ from langbot_plugin.api.entities.builtin.rag import (
     RetrievalResponse,
     RetrievalResultEntry,
     DocumentStatus,
+    SearchType,
 )
 
 from .parser import FileParser
@@ -127,38 +128,38 @@ class LangRAG(RAGEngine):
                     chunks_created=0,
                 )
 
-            # 4. Embed in batches to avoid IPC timeouts
+            # 4. Embed and upsert in batches to avoid IPC timeouts
             embedding_model_uuid = context.creation_settings.get("embedding_model_uuid", "")
-            vectors: list[list[float]] = []
+            total_stored = 0
             for i in range(0, len(chunks), EMBEDDING_BATCH_SIZE):
-                batch = chunks[i : i + EMBEDDING_BATCH_SIZE]
-                batch_vectors = await self.plugin.invoke_embedding(embedding_model_uuid, batch)
-                vectors.extend(batch_vectors)
+                batch_chunks = chunks[i : i + EMBEDDING_BATCH_SIZE]
+                batch_vectors = await self.plugin.invoke_embedding(embedding_model_uuid, batch_chunks)
 
-            # 5. Build metadata and upsert to vector store
-            ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
-            metadatas = [
-                {
-                    "file_id": doc_id,
-                    "document_id": doc_id,
-                    "document_name": filename,
-                    "chunk_index": i,
-                    "text": chunk,
-                }
-                for i, chunk in enumerate(chunks)
-            ]
+                batch_ids = [f"{doc_id}_{i + j}" for j in range(len(batch_chunks))]
+                batch_metadatas = [
+                    {
+                        "file_id": doc_id,
+                        "document_id": doc_id,
+                        "document_name": filename,
+                        "chunk_index": i + j,
+                        "text": chunk,
+                    }
+                    for j, chunk in enumerate(batch_chunks)
+                ]
 
-            await self.plugin.vector_upsert(
-                collection_id=collection_id,
-                vectors=vectors,
-                ids=ids,
-                metadata=metadatas,
-            )
+                await self.plugin.vector_upsert(
+                    collection_id=collection_id,
+                    vectors=batch_vectors,
+                    ids=batch_ids,
+                    metadata=batch_metadatas,
+                    documents=batch_chunks,
+                )
+                total_stored += len(batch_chunks)
 
             return IngestionResult(
                 document_id=doc_id,
                 status=DocumentStatus.COMPLETED,
-                chunks_created=len(chunks),
+                chunks_created=total_stored,
             )
 
         except Exception as e:
@@ -170,21 +171,27 @@ class LangRAG(RAGEngine):
             )
 
     async def retrieve(self, context: RetrievalContext) -> RetrievalResponse:
-        """Retrieve relevant content: Embed query -> Vector search -> Format results."""
+        """Retrieve relevant content with support for vector, full-text, and hybrid search."""
         query = context.query
         top_k = context.retrieval_settings.get("top_k", 5)
         collection_id = context.get_collection_id()
+        search_type = context.retrieval_settings.get("search_type", SearchType.VECTOR)
 
-        # 1. Embed query
-        embedding_model_uuid = context.creation_settings.get("embedding_model_uuid", "")
-        query_vectors = await self.plugin.invoke_embedding(embedding_model_uuid, [query])
-        query_vector = query_vectors[0]
+        # 1. Embed query (skip for pure full-text search)
+        query_vector: list[float] = []
+        if search_type != SearchType.FULL_TEXT:
+            embedding_model_uuid = context.creation_settings.get("embedding_model_uuid", "")
+            query_vectors = await self.plugin.invoke_embedding(embedding_model_uuid, [query])
+            query_vector = query_vectors[0]
 
-        # 2. Vector search
+        # 2. Search
         results = await self.plugin.vector_search(
             collection_id=collection_id,
             query_vector=query_vector,
             top_k=top_k,
+            filters=context.filters or None,
+            search_type=search_type,
+            query_text=query,
         )
 
         # 3. Format results
