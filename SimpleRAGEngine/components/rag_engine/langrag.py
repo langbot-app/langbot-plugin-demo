@@ -93,7 +93,7 @@ class LangRAG(RAGEngine):
 
         # 1. Get file content from Host
         try:
-            content_bytes = await self.plugin.rag_get_file_stream(context.file_object.storage_path)
+            content_bytes = await self.plugin.get_rag_file_stream(context.file_object.storage_path)
         except Exception as e:
             logger.error(f"Failed to get file content: {e}")
             return IngestionResult(
@@ -116,8 +116,8 @@ class LangRAG(RAGEngine):
                 )
 
             # 3. Chunk with overlap
-            chunk_size = context.chunk_size or context.custom_settings.get("chunk_size") or DEFAULT_CHUNK_SIZE
-            chunk_overlap = context.chunk_overlap or context.custom_settings.get("overlap") or DEFAULT_CHUNK_OVERLAP
+            chunk_size = context.creation_settings.get("chunk_size") or DEFAULT_CHUNK_SIZE
+            chunk_overlap = context.creation_settings.get("overlap") or DEFAULT_CHUNK_OVERLAP
             chunks = _chunk_text(text_content, chunk_size, chunk_overlap)
 
             if not chunks:
@@ -128,7 +128,7 @@ class LangRAG(RAGEngine):
                 )
 
             # 4. Embed in batches to avoid IPC timeouts
-            embedding_model_uuid = context.custom_settings.get("embedding_model_uuid", "")
+            embedding_model_uuid = context.creation_settings.get("embedding_model_uuid", "")
             vectors: list[list[float]] = []
             for i in range(0, len(chunks), EMBEDDING_BATCH_SIZE):
                 batch = chunks[i : i + EMBEDDING_BATCH_SIZE]
@@ -148,7 +148,7 @@ class LangRAG(RAGEngine):
                 for i, chunk in enumerate(chunks)
             ]
 
-            await self.plugin.rag_vector_upsert(
+            await self.plugin.vector_upsert(
                 collection_id=collection_id,
                 vectors=vectors,
                 ids=ids,
@@ -172,7 +172,7 @@ class LangRAG(RAGEngine):
     async def retrieve(self, context: RetrievalContext) -> RetrievalResponse:
         """Retrieve relevant content: Embed query -> Vector search -> Format results."""
         query = context.query
-        top_k = context.get_top_k()
+        top_k = context.retrieval_settings.get("top_k", 5)
         collection_id = context.get_collection_id()
 
         # 1. Embed query
@@ -181,7 +181,7 @@ class LangRAG(RAGEngine):
         query_vector = query_vectors[0]
 
         # 2. Vector search
-        results = await self.plugin.rag_vector_search(
+        results = await self.plugin.vector_search(
             collection_id=collection_id,
             query_vector=query_vector,
             top_k=top_k,
@@ -208,7 +208,7 @@ class LangRAG(RAGEngine):
 
     async def delete_document(self, kb_id: str, document_id: str) -> bool:
         """Delete a document's vectors by file_id."""
-        count = await self.plugin.rag_vector_delete(
+        count = await self.plugin.vector_delete(
             collection_id=kb_id,
             file_ids=[document_id],
         )
