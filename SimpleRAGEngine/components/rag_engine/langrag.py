@@ -128,39 +128,38 @@ class LangRAG(RAGEngine):
                     chunks_created=0,
                 )
 
-            # 4. Embed in batches to avoid IPC timeouts
+            # 4. Embed and upsert in batches to avoid IPC timeouts
             embedding_model_uuid = context.creation_settings.get("embedding_model_uuid", "")
-            vectors: list[list[float]] = []
+            total_stored = 0
             for i in range(0, len(chunks), EMBEDDING_BATCH_SIZE):
-                batch = chunks[i : i + EMBEDDING_BATCH_SIZE]
-                batch_vectors = await self.plugin.invoke_embedding(embedding_model_uuid, batch)
-                vectors.extend(batch_vectors)
+                batch_chunks = chunks[i : i + EMBEDDING_BATCH_SIZE]
+                batch_vectors = await self.plugin.invoke_embedding(embedding_model_uuid, batch_chunks)
 
-            # 5. Build metadata and upsert to vector store
-            ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
-            metadatas = [
-                {
-                    "file_id": doc_id,
-                    "document_id": doc_id,
-                    "document_name": filename,
-                    "chunk_index": i,
-                    "text": chunk,
-                }
-                for i, chunk in enumerate(chunks)
-            ]
+                batch_ids = [f"{doc_id}_{i + j}" for j in range(len(batch_chunks))]
+                batch_metadatas = [
+                    {
+                        "file_id": doc_id,
+                        "document_id": doc_id,
+                        "document_name": filename,
+                        "chunk_index": i + j,
+                        "text": chunk,
+                    }
+                    for j, chunk in enumerate(batch_chunks)
+                ]
 
-            await self.plugin.vector_upsert(
-                collection_id=collection_id,
-                vectors=vectors,
-                ids=ids,
-                metadata=metadatas,
-                documents=chunks,
-            )
+                await self.plugin.vector_upsert(
+                    collection_id=collection_id,
+                    vectors=batch_vectors,
+                    ids=batch_ids,
+                    metadata=batch_metadatas,
+                    documents=batch_chunks,
+                )
+                total_stored += len(batch_chunks)
 
             return IngestionResult(
                 document_id=doc_id,
                 status=DocumentStatus.COMPLETED,
-                chunks_created=len(chunks),
+                chunks_created=total_stored,
             )
 
         except Exception as e:
