@@ -20,6 +20,25 @@ spec:
       type: embedding-model-selector
       required: true
       default: ''
+    - name: index_type
+      label:
+        en_US: Index Type
+        zh_Hans: 索引类型
+      description:
+        en_US: 'Chunk: flat chunking; Parent-Child: two-level chunking for richer context'
+        zh_Hans: 'Chunk：平坦分块；Parent-Child：双层分块，检索返回更丰富上下文'
+      type: select
+      required: false
+      default: chunk
+      options:
+        - name: chunk
+          label:
+            en_US: Chunk
+            zh_Hans: 分块
+        - name: parent_child
+          label:
+            en_US: Parent-Child
+            zh_Hans: 父子索引
     - name: chunk_size
       label:
         en_US: Chunk Size
@@ -34,6 +53,26 @@ spec:
       type: integer
       required: false
       default: 50
+    - name: parent_chunk_size
+      label:
+        en_US: Parent Chunk Size
+        zh_Hans: 父块大小
+      description:
+        en_US: Size of parent chunks (only used with Parent-Child index type)
+        zh_Hans: 父块大小（仅在 Parent-Child 索引类型下生效）
+      type: integer
+      required: false
+      default: 2048
+    - name: child_chunk_size
+      label:
+        en_US: Child Chunk Size
+        zh_Hans: 子块大小
+      description:
+        en_US: Size of child chunks (only used with Parent-Child index type)
+        zh_Hans: 子块大小（仅在 Parent-Child 索引类型下生效）
+      type: integer
+      required: false
+      default: 256
   retrieval_schema:
     - name: top_k
       label:

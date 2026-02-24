@@ -12,149 +12,14 @@ from langbot_plugin.api.entities.builtin.rag import (
 )
 
 from .parser import FileParser
+from .strategies import get_strategy
 
 logger = logging.getLogger(__name__)
 
-# Default chunking parameters
-DEFAULT_CHUNK_SIZE = 512
-DEFAULT_CHUNK_OVERLAP = 50
-# Batch size for embedding API calls to avoid IPC timeouts
-EMBEDDING_BATCH_SIZE = 10
-
-
-# Separators in order of semantic significance (paragraph → sentence → word → char)
-_SEPARATORS = [
-    "\n\n",  # Paragraphs
-    "\n",    # Lines
-    ". ",    # Sentences
-    "。",    # Chinese/Japanese sentence end
-    "! ",    # Exclamations
-    "? ",    # Questions
-    "; ",    # Semicolons
-    "；",    # Chinese semicolon
-    "，",    # Chinese comma
-    ", ",    # Commas
-    " ",     # Spaces (words)
-    "",      # Characters (fallback)
-]
-
-
-def _chunk_text(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
-    """Split text into overlapping chunks using recursive character splitting.
-
-    Attempts to split at natural semantic boundaries (paragraphs, sentences,
-    words) before falling back to character-level splitting. This preserves
-    readability and context compared to a naive sliding-window approach.
-
-    Args:
-        text: The text to split.
-        chunk_size: Maximum characters per chunk.
-        chunk_overlap: Number of overlapping characters between consecutive chunks.
-
-    Returns:
-        List of text chunks.
-    """
-    if not text:
-        return []
-
-    if chunk_overlap >= chunk_size:
-        logger.warning(
-            f"chunk_overlap ({chunk_overlap}) >= chunk_size ({chunk_size}), "
-            "clamping overlap to chunk_size - 1"
-        )
-        chunk_overlap = chunk_size - 1
-
-    return _split_recursive(text, _SEPARATORS, chunk_size, chunk_overlap)
-
-
-def _split_recursive(
-    text: str,
-    separators: list[str],
-    chunk_size: int,
-    chunk_overlap: int,
-) -> list[str]:
-    """Recursively split *text* trying each separator in priority order."""
-    final_chunks: list[str] = []
-    separator = separators[0] if separators else ""
-    remaining_separators = separators[1:] if len(separators) > 1 else []
-
-    splits = _split_by_separator(text, separator)
-
-    current_parts: list[str] = []
-    current_len = 0
-
-    for part in splits:
-        part_len = len(part)
-
-        # Single piece already exceeds limit → recurse with finer separator
-        if part_len > chunk_size:
-            # Flush accumulated parts first
-            if current_parts:
-                final_chunks.append("".join(current_parts))
-                current_parts = _overlap_parts(current_parts, chunk_overlap)
-                current_len = sum(len(p) for p in current_parts)
-
-            if remaining_separators:
-                final_chunks.extend(
-                    _split_recursive(part, remaining_separators, chunk_size, chunk_overlap)
-                )
-            else:
-                final_chunks.extend(_split_by_char(part, chunk_size, chunk_overlap))
-            continue
-
-        # Would adding this part exceed the limit?
-        if current_parts and current_len + part_len > chunk_size:
-            final_chunks.append("".join(current_parts))
-            current_parts = _overlap_parts(current_parts, chunk_overlap)
-            current_len = sum(len(p) for p in current_parts)
-
-        current_parts.append(part)
-        current_len += part_len
-
-    if current_parts:
-        final_chunks.append("".join(current_parts))
-
-    return final_chunks
-
-
-def _split_by_separator(text: str, separator: str) -> list[str]:
-    """Split *text* by *separator*, keeping the separator attached to the left piece."""
-    if separator == "":
-        return list(text)
-
-    parts = text.split(separator)
-    result: list[str] = []
-    for piece in parts[:-1]:
-        if piece or separator.strip():
-            result.append(piece + separator)
-    if parts[-1]:
-        result.append(parts[-1])
-    return result
-
-
-def _overlap_parts(parts: list[str], overlap: int) -> list[str]:
-    """Return trailing *parts* whose combined length fits within *overlap*."""
-    if overlap <= 0:
-        return []
-
-    kept: list[str] = []
-    total = 0
-    for part in reversed(parts):
-        if total + len(part) > overlap:
-            break
-        kept.insert(0, part)
-        total += len(part)
-    return kept
-
-
-def _split_by_char(text: str, chunk_size: int, overlap: int) -> list[str]:
-    """Last-resort character-level split."""
-    chunks: list[str] = []
-    start = 0
-    while start < len(text):
-        chunks.append(text[start : start + chunk_size])
-        start += chunk_size - overlap
-    return chunks
+# Batch size for embedding API calls.
+# Stdio IPC is serial, so batches run sequentially — larger batches = fewer
+# round-trips.  Keep under ~64 to avoid IPC response timeouts.
+EMBEDDING_BATCH_SIZE = 32
 
 
 class LangRAG(RAGEngine):
@@ -213,45 +78,47 @@ class LangRAG(RAGEngine):
                     chunks_created=0,
                 )
 
-            # 3. Chunk with overlap
-            chunk_size = context.creation_settings.get("chunk_size") or DEFAULT_CHUNK_SIZE
-            chunk_overlap = context.creation_settings.get("overlap") or DEFAULT_CHUNK_OVERLAP
-            chunks = _chunk_text(text_content, chunk_size, chunk_overlap)
+            # 3. Build chunks via strategy
+            index_type = context.creation_settings.get("index_type") or "chunk"
+            strategy = get_strategy(index_type)
+            logger.info(f"Strategy: {index_type} ({strategy.__class__.__name__})")
 
-            if not chunks:
+            texts_to_embed, ids, metadatas = strategy.build_chunks_and_metadata(
+                text_content, doc_id, filename, context.creation_settings,
+            )
+
+            if texts_to_embed:
+                logger.info(
+                    f"Chunking result: {len(texts_to_embed)} chunks to embed, "
+                    f"sample ID: {ids[0]}"
+                )
+
+            if not texts_to_embed:
                 return IngestionResult(
                     document_id=doc_id,
                     status=DocumentStatus.COMPLETED,
                     chunks_created=0,
                 )
 
-            # 4. Embed and upsert in batches to avoid IPC timeouts
+            # 4. Embed and upsert in batches (stdio IPC is serial, no concurrency)
             embedding_model_uuid = context.creation_settings.get("embedding_model_uuid", "")
             total_stored = 0
-            for i in range(0, len(chunks), EMBEDDING_BATCH_SIZE):
-                batch_chunks = chunks[i : i + EMBEDDING_BATCH_SIZE]
-                batch_vectors = await self.plugin.invoke_embedding(embedding_model_uuid, batch_chunks)
+            for i in range(0, len(texts_to_embed), EMBEDDING_BATCH_SIZE):
+                batch_texts = texts_to_embed[i : i + EMBEDDING_BATCH_SIZE]
+                batch_ids = ids[i : i + EMBEDDING_BATCH_SIZE]
+                batch_metas = metadatas[i : i + EMBEDDING_BATCH_SIZE]
 
-                batch_ids = [f"{doc_id}_{i + j}" for j in range(len(batch_chunks))]
-                batch_metadatas = [
-                    {
-                        "file_id": doc_id,
-                        "document_id": doc_id,
-                        "document_name": filename,
-                        "chunk_index": i + j,
-                        "text": chunk,
-                    }
-                    for j, chunk in enumerate(batch_chunks)
-                ]
-
+                batch_vectors = await self.plugin.invoke_embedding(
+                    embedding_model_uuid, batch_texts,
+                )
                 await self.plugin.vector_upsert(
                     collection_id=collection_id,
                     vectors=batch_vectors,
                     ids=batch_ids,
-                    metadata=batch_metadatas,
-                    documents=batch_chunks,
+                    metadata=batch_metas,
+                    documents=batch_texts,
                 )
-                total_stored += len(batch_chunks)
+                total_stored += len(batch_texts)
 
             return IngestionResult(
                 document_id=doc_id,
@@ -274,6 +141,14 @@ class LangRAG(RAGEngine):
         collection_id = context.get_collection_id()
         search_type = context.retrieval_settings.get("search_type", SearchType.VECTOR)
 
+        # Determine strategy for post-processing
+        index_type = context.creation_settings.get("index_type") or "chunk"
+        strategy = get_strategy(index_type)
+        logger.info(f"Retrieve: strategy={index_type}, top_k={top_k}")
+
+        # For parent_child, over-fetch to allow dedup to still yield top_k results
+        fetch_k = top_k * 3 if index_type == "parent_child" else top_k
+
         # 1. Embed query (skip for pure full-text search)
         query_vector: list[float] = []
         if search_type != SearchType.FULL_TEXT:
@@ -285,13 +160,21 @@ class LangRAG(RAGEngine):
         results = await self.plugin.vector_search(
             collection_id=collection_id,
             query_vector=query_vector,
-            top_k=top_k,
+            top_k=fetch_k,
             filters=context.filters or None,
             search_type=search_type,
             query_text=query,
         )
 
-        # 3. Format results
+        # 3. Post-process (strategy may deduplicate / re-rank)
+        raw_count = len(results)
+        results = strategy.postprocess_results(results, top_k)
+        logger.info(
+            f"Retrieve post-process: {raw_count} raw → {len(results)} after dedup "
+            f"(fetch_k={fetch_k})"
+        )
+
+        # 4. Format results
         entries: list[RetrievalResultEntry] = []
         for res in results:
             content_text = res.get("metadata", {}).get("text", "")
