@@ -34,7 +34,7 @@ class LangRAG(RAGEngine):
     @classmethod
     def get_capabilities(cls) -> list[str]:
         """Declare supported capabilities."""
-        return [RAGEngineCapability.DOC_INGESTION]
+        return [RAGEngineCapability.DOC_INGESTION, RAGEngineCapability.DOC_PARSING]
 
     # ========== Lifecycle Hooks ==========
 
