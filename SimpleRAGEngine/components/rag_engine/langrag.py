@@ -12,6 +12,7 @@ from langbot_plugin.api.entities.builtin.rag import (
 )
 
 from .parser import FileParser
+from .query_rewrite import retrieve_with_rewrite
 from .strategies import get_strategy
 
 logger = logging.getLogger(__name__)
@@ -144,29 +145,50 @@ class LangRAG(RAGEngine):
         # Determine strategy for post-processing
         index_type = context.creation_settings.get("index_type") or "chunk"
         strategy = get_strategy(index_type)
-        logger.info(f"Retrieve: strategy={index_type}, top_k={top_k}")
+        logger.info(
+            f"Retrieve: strategy={index_type}, top_k={top_k}, "
+            f"query_rewrite={context.retrieval_settings.get('query_rewrite', 'off')}, "
+            f"query={query!r}"
+        )
 
         # For parent_child, over-fetch to allow dedup to still yield top_k results
         fetch_k = top_k * 3 if index_type == "parent_child" else top_k
 
-        # 1. Embed query (skip for pure full-text search)
-        query_vector: list[float] = []
-        if search_type != SearchType.FULL_TEXT:
-            embedding_model_uuid = context.creation_settings.get("embedding_model_uuid", "")
-            query_vectors = await self.plugin.invoke_embedding(embedding_model_uuid, [query])
-            query_vector = query_vectors[0]
+        # Check query rewrite settings
+        query_rewrite = context.retrieval_settings.get("query_rewrite", "off")
+        rewrite_llm = context.creation_settings.get("rewrite_llm_model_uuid", "")
 
-        # 2. Search
-        results = await self.plugin.vector_search(
-            collection_id=collection_id,
-            query_vector=query_vector,
-            top_k=fetch_k,
-            filters=context.filters or None,
-            search_type=search_type,
-            query_text=query,
-        )
+        if query_rewrite != "off" and rewrite_llm:
+            logger.info(f"Query rewrite enabled: strategy={query_rewrite}")
+            results = await retrieve_with_rewrite(
+                plugin=self.plugin,
+                query=query,
+                query_rewrite=query_rewrite,
+                rewrite_llm=rewrite_llm,
+                collection_id=collection_id,
+                embedding_model_uuid=context.creation_settings.get("embedding_model_uuid", ""),
+                fetch_k=fetch_k,
+                filters=context.filters or None,
+                search_type=search_type,
+            )
+        else:
+            # Original logic: embed query → vector_search
+            query_vector: list[float] = []
+            if search_type != SearchType.FULL_TEXT:
+                embedding_model_uuid = context.creation_settings.get("embedding_model_uuid", "")
+                query_vectors = await self.plugin.invoke_embedding(embedding_model_uuid, [query])
+                query_vector = query_vectors[0]
 
-        # 3. Post-process (strategy may deduplicate / re-rank)
+            results = await self.plugin.vector_search(
+                collection_id=collection_id,
+                query_vector=query_vector,
+                top_k=fetch_k,
+                filters=context.filters or None,
+                search_type=search_type,
+                query_text=query,
+            )
+
+        # Post-process (strategy may deduplicate / re-rank)
         raw_count = len(results)
         results = strategy.postprocess_results(results, top_k)
         logger.info(
@@ -174,7 +196,7 @@ class LangRAG(RAGEngine):
             f"(fetch_k={fetch_k})"
         )
 
-        # 4. Format results
+        # Format results
         entries: list[RetrievalResultEntry] = []
         for res in results:
             content_text = res.get("metadata", {}).get("text", "")

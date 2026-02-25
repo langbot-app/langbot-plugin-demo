@@ -73,6 +73,16 @@ spec:
       type: integer
       required: false
       default: 256
+    - name: rewrite_llm_model_uuid
+      label:
+        en_US: Query Rewrite LLM
+        zh_Hans: 查询重写 LLM
+      description:
+        en_US: LLM model for query rewriting (required when query rewriting is enabled)
+        zh_Hans: 用于查询重写的 LLM 模型（启用查询重写时需要）
+      type: llm-model-selector
+      required: false
+      default: ''
   retrieval_schema:
     - name: top_k
       label:
@@ -104,6 +114,25 @@ spec:
           label:
             en_US: Hybrid
             zh_Hans: 混合检索
+    - name: query_rewrite
+      label:
+        en_US: Query Rewriting
+        zh_Hans: 查询重写
+      description:
+        en_US: 'Off: direct search; HyDE: hypothetical document; Multi-Query: query expansion; Step-Back: abstract generalization'
+        zh_Hans: 'Off：直接检索；HyDE：假设文档嵌入；Multi-Query：多查询扩展；Step-Back：回退抽象提问'
+      type: select
+      required: false
+      default: "off"
+      options:
+        - name: "off"
+          label: { en_US: "Off", zh_Hans: "关闭" }
+        - name: hyde
+          label: { en_US: "HyDE", zh_Hans: "HyDE（假设文档）" }
+        - name: multi_query
+          label: { en_US: "Multi-Query", zh_Hans: "多查询扩展" }
+        - name: step_back
+          label: { en_US: "Step-Back", zh_Hans: "回退提问" }
 execution:
   python:
     path: langrag.py
