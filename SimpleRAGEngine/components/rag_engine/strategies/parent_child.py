@@ -7,6 +7,7 @@ returns full context.
 """
 
 import logging
+from collections.abc import AsyncGenerator
 
 from .base import IndexStrategy
 from ..chunker import chunk_text, DEFAULT_CHUNK_OVERLAP
@@ -30,13 +31,14 @@ class ParentChildStrategy(IndexStrategy):
       highest-scoring child per parent.
     """
 
-    def build_chunks_and_metadata(
+    async def build_chunks_and_metadata(
         self,
         text: str,
         doc_id: str,
         filename: str,
         creation_settings: dict,
-    ) -> tuple[list[str], list[str], list[dict]]:
+        plugin=None,
+    ) -> AsyncGenerator[tuple[list[str], list[str], list[dict]], None]:
         parent_size = creation_settings.get("parent_chunk_size") or DEFAULT_PARENT_CHUNK_SIZE
         child_size = creation_settings.get("child_chunk_size") or DEFAULT_CHILD_CHUNK_SIZE
         overlap = creation_settings.get("overlap") or DEFAULT_CHUNK_OVERLAP
@@ -63,7 +65,7 @@ class ParentChildStrategy(IndexStrategy):
                     "index_type": "parent_child",
                 })
 
-        return texts_to_embed, ids, metadatas
+        yield texts_to_embed, ids, metadatas
 
     def postprocess_results(self, results: list[dict], top_k: int) -> list[dict]:
         """Deduplicate by parent chunk, keeping the highest-scoring child."""

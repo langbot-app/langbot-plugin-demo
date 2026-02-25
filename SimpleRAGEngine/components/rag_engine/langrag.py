@@ -18,8 +18,8 @@ from .strategies import get_strategy
 logger = logging.getLogger(__name__)
 
 # Batch size for embedding API calls.
-# Stdio IPC is serial, so batches run sequentially — larger batches = fewer
-# round-trips.  Keep under ~64 to avoid IPC response timeouts.
+# Larger batches = fewer round-trips.  Keep under ~64 to avoid IPC response
+# timeouts.
 EMBEDDING_BATCH_SIZE = 32
 
 
@@ -45,10 +45,39 @@ class LangRAG(RAGEngine):
     async def on_knowledge_base_delete(self, kb_id: str) -> None:
         logger.info(f"Knowledge base deleted: {kb_id}")
 
+    # ========== Helpers ==========
+
+    async def _embed_and_upsert(
+        self,
+        collection_id: str,
+        embedding_model_uuid: str,
+        texts: list[str],
+        ids: list[str],
+        metas: list[dict],
+    ) -> int:
+        """Embed a batch of texts and upsert into the vector store.
+
+        Returns the number of vectors stored.
+        """
+        vectors = await self.plugin.invoke_embedding(embedding_model_uuid, texts)
+        await self.plugin.vector_upsert(
+            collection_id=collection_id,
+            vectors=vectors,
+            ids=ids,
+            metadata=metas,
+            documents=texts,
+        )
+        return len(texts)
+
     # ========== Core Methods ==========
 
     async def ingest(self, context: IngestionContext) -> IngestionResult:
-        """Handle document ingestion: Read -> Parse -> Chunk -> Embed -> Store."""
+        """Handle document ingestion: Read -> Parse -> Chunk -> Embed -> Store.
+
+        Uses an async generator pipeline: the strategy yields batches
+        incrementally, and each batch is embedded and upserted as soon as it
+        is ready.  This ensures partial results are persisted early.
+        """
         doc_id = context.file_object.metadata.document_id
         filename = context.file_object.metadata.filename
         collection_id = context.get_collection_id()
@@ -79,47 +108,50 @@ class LangRAG(RAGEngine):
                     chunks_created=0,
                 )
 
-            # 3. Build chunks via strategy
+            # 3. Build chunks via strategy (async generator)
             index_type = context.creation_settings.get("index_type") or "chunk"
             strategy = get_strategy(index_type)
+            embedding_model_uuid = context.creation_settings.get("embedding_model_uuid", "")
             logger.info(f"Strategy: {index_type} ({strategy.__class__.__name__})")
 
-            texts_to_embed, ids, metadatas = strategy.build_chunks_and_metadata(
-                text_content, doc_id, filename, context.creation_settings,
-            )
-
-            if texts_to_embed:
-                logger.info(
-                    f"Chunking result: {len(texts_to_embed)} chunks to embed, "
-                    f"sample ID: {ids[0]}"
-                )
-
-            if not texts_to_embed:
-                return IngestionResult(
-                    document_id=doc_id,
-                    status=DocumentStatus.COMPLETED,
-                    chunks_created=0,
-                )
-
-            # 4. Embed and upsert in batches (stdio IPC is serial, no concurrency)
-            embedding_model_uuid = context.creation_settings.get("embedding_model_uuid", "")
+            # 4. Progressive ingest: consume generator → accumulate → embed+upsert
+            #    when a full batch is ready.  Embedding happens between generator
+            #    yields (sequential, not concurrent) to avoid IPC timeout issues.
+            pending_texts: list[str] = []
+            pending_ids: list[str] = []
+            pending_metas: list[dict] = []
             total_stored = 0
-            for i in range(0, len(texts_to_embed), EMBEDDING_BATCH_SIZE):
-                batch_texts = texts_to_embed[i : i + EMBEDDING_BATCH_SIZE]
-                batch_ids = ids[i : i + EMBEDDING_BATCH_SIZE]
-                batch_metas = metadatas[i : i + EMBEDDING_BATCH_SIZE]
 
-                batch_vectors = await self.plugin.invoke_embedding(
-                    embedding_model_uuid, batch_texts,
+            async for batch_texts, batch_ids, batch_metas in strategy.build_chunks_and_metadata(
+                text_content, doc_id, filename, context.creation_settings,
+                plugin=self.plugin,
+            ):
+                pending_texts.extend(batch_texts)
+                pending_ids.extend(batch_ids)
+                pending_metas.extend(batch_metas)
+
+                # Flush full batches immediately
+                while len(pending_texts) >= EMBEDDING_BATCH_SIZE:
+                    t = pending_texts[:EMBEDDING_BATCH_SIZE]
+                    i = pending_ids[:EMBEDDING_BATCH_SIZE]
+                    m = pending_metas[:EMBEDDING_BATCH_SIZE]
+                    pending_texts = pending_texts[EMBEDDING_BATCH_SIZE:]
+                    pending_ids = pending_ids[EMBEDDING_BATCH_SIZE:]
+                    pending_metas = pending_metas[EMBEDDING_BATCH_SIZE:]
+                    total_stored += await self._embed_and_upsert(
+                        collection_id, embedding_model_uuid, t, i, m,
+                    )
+
+            # Flush remaining
+            if pending_texts:
+                total_stored += await self._embed_and_upsert(
+                    collection_id, embedding_model_uuid,
+                    pending_texts, pending_ids, pending_metas,
                 )
-                await self.plugin.vector_upsert(
-                    collection_id=collection_id,
-                    vectors=batch_vectors,
-                    ids=batch_ids,
-                    metadata=batch_metas,
-                    documents=batch_texts,
-                )
-                total_stored += len(batch_texts)
+
+            if total_stored:
+                unit = "Q&A pairs" if index_type == "qa" else "chunks"
+                logger.info(f"Ingestion complete: {total_stored} {unit} stored")
 
             return IngestionResult(
                 document_id=doc_id,
@@ -152,11 +184,11 @@ class LangRAG(RAGEngine):
         )
 
         # For parent_child, over-fetch to allow dedup to still yield top_k results
-        fetch_k = top_k * 3 if index_type == "parent_child" else top_k
+        fetch_k = top_k * 3 if index_type in ("parent_child", "qa") else top_k
 
         # Check query rewrite settings
         query_rewrite = context.retrieval_settings.get("query_rewrite", "off")
-        rewrite_llm = context.creation_settings.get("rewrite_llm_model_uuid", "")
+        rewrite_llm = context.retrieval_settings.get("rewrite_llm_model_uuid", "")
 
         if query_rewrite != "off" and rewrite_llm:
             logger.info(f"Query rewrite enabled: strategy={query_rewrite}")
