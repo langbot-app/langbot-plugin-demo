@@ -1,6 +1,7 @@
 """Abstract base class for index strategies."""
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator
 
 
 class IndexStrategy(ABC):
@@ -11,28 +12,35 @@ class IndexStrategy(ABC):
     """
 
     @abstractmethod
-    def build_chunks_and_metadata(
+    async def build_chunks_and_metadata(
         self,
         text: str,
         doc_id: str,
         filename: str,
         creation_settings: dict,
-    ) -> tuple[list[str], list[str], list[dict]]:
+        plugin=None,
+    ) -> AsyncGenerator[tuple[list[str], list[str], list[dict]], None]:
         """Build chunks, IDs, and metadata for a parsed document.
+
+        Yields batches of ``(texts_to_embed, ids, metadatas)``.  Most
+        strategies yield a single batch; streaming strategies (e.g. QA)
+        may yield incrementally to enable pipelined embedding.
 
         Args:
             text: Full parsed text of the document.
             doc_id: Unique document identifier.
             filename: Original filename.
             creation_settings: Knowledge base creation settings dict.
+            plugin: Optional plugin reference for strategies that need
+                Host API access (e.g. LLM calls during ingestion).
 
-        Returns:
+        Yields:
             A tuple of (texts_to_embed, ids, metadatas).
             - texts_to_embed: text chunks to be embedded.
             - ids: unique ID for each chunk.
             - metadatas: metadata dict for each chunk.
         """
-        ...
+        yield  # abstract – subclasses must override
 
     def postprocess_results(self, results: list[dict], top_k: int) -> list[dict]:
         """Post-process search results before returning to the caller.
