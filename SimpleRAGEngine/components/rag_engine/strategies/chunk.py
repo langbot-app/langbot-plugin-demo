@@ -1,5 +1,7 @@
 """Default flat chunking strategy — preserves the original LangRAG behavior."""
 
+from collections.abc import AsyncGenerator
+
 from .base import IndexStrategy
 from ..chunker import chunk_text, DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP
 
@@ -11,13 +13,14 @@ class ChunkStrategy(IndexStrategy):
     behaviour of LangRAG prior to strategy modularisation.
     """
 
-    def build_chunks_and_metadata(
+    async def build_chunks_and_metadata(
         self,
         text: str,
         doc_id: str,
         filename: str,
         creation_settings: dict,
-    ) -> tuple[list[str], list[str], list[dict]]:
+        plugin=None,
+    ) -> AsyncGenerator[tuple[list[str], list[str], list[dict]], None]:
         chunk_size = creation_settings.get("chunk_size") or DEFAULT_CHUNK_SIZE
         overlap = creation_settings.get("overlap") or DEFAULT_CHUNK_OVERLAP
 
@@ -36,4 +39,4 @@ class ChunkStrategy(IndexStrategy):
                 "index_type": "chunk",
             })
 
-        return chunks, ids, metadatas
+        yield chunks, ids, metadatas

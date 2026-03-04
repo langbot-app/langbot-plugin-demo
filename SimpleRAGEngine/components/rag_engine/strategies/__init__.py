@@ -5,12 +5,14 @@ import logging
 from .base import IndexStrategy
 from .chunk import ChunkStrategy
 from .parent_child import ParentChildStrategy
+from .qa import QAStrategy
 
 logger = logging.getLogger(__name__)
 
 _STRATEGIES: dict[str, type[IndexStrategy]] = {
     "chunk": ChunkStrategy,
     "parent_child": ParentChildStrategy,
+    "qa": QAStrategy,
 }
 
 
