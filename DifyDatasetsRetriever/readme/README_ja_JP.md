@@ -1,10 +1,10 @@
-# DifyDatasetsRetriever
+# DifyDatasetsConnector
 
-Dify APIを使用してDifyナレッジベースから知識を取得します。
+Dify APIを使用してDifyナレッジベースから知識を取得またはファイルを保存します。
 
 ## 設定
 
-LangBotで外部ナレッジベースを追加し、ナレッジリトリーバータイプとして「DifyDatasetsRetriever」を選択してください。
+LangBotで外部ナレッジベースを追加し、ナレッジリトリーバータイプとして「DifyDatasetsConnector」を選択してください。
 
 ### 作成設定（ナレッジベース作成時に設定）
 

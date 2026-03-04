@@ -7,9 +7,9 @@ metadata:
     zh_Hans: Dify 知识库
     ja_JP: Dify 知識ベース
   description:
-    en_US: Retrieve knowledge from Dify knowledge bases
-    zh_Hans: 从 Dify 知识库中检索知识
-    ja_JP: Dify 知識ベースから知識を検索
+    en_US: Retrieve knowledge from or store files into Dify knowledge bases
+    zh_Hans: 从 Dify 知识库中检索知识或向其中存入文件
+    ja_JP: Dify 知識ベースから知識を検索または保存
 spec:
   creation_schema:
     - name: api_base_url

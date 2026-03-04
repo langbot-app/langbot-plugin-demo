@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from langbot_plugin.api.definition.plugin import BasePlugin
 
-class DifyDatasetsRetriever(BasePlugin):
+class DifyDatasetsConnector(BasePlugin):
 
     async def initialize(self) -> None:
         # Will be called when plugin is launching

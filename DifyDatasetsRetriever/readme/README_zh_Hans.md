@@ -1,10 +1,10 @@
-# DifyDatasetsRetriever
+# DifyDatasetsConnector
 
-使用 Dify API 从 Dify 知识库中检索知识。
+使用 Dify API 从 Dify 知识库中检索知识或向其中存入文件。
 
 ## 配置
 
-请在 LangBot 中添加外部知识库，并选择"DifyDatasetsRetriever"作为知识检索器类型。
+请在 LangBot 中添加外部知识库，并选择"DifyDatasetsConnector"作为知识检索器类型。
 
 ### 创建设置（创建知识库时配置）
 

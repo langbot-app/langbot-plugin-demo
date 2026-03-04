@@ -1,10 +1,10 @@
-# DifyDatasetsRetriever
+# DifyDatasetsConnector
 
-Retrieve knowledge from Dify knowledge bases using the Dify API.
+Retrieve knowledge from or store files into Dify knowledge bases using the Dify API.
 
 ## Configuration
 
-Please add an external knowledge base in LangBot and select "DifyDatasetsRetriever" as the knowledge retriever type.
+Please add an external knowledge base in LangBot and select "DifyDatasetsConnector" as the knowledge retriever type.
 
 ### Creation Settings (set when creating a knowledge base)
 
