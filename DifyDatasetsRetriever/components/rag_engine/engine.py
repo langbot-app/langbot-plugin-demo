@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 import logging
 
 import httpx
 
-from langbot_plugin.api.definition.components.rag_engine import RAGEngine
+from langbot_plugin.api.definition.components.rag_engine import RAGEngine, RAGEngineCapability
 from langbot_plugin.api.entities.builtin.rag import (
     IngestionContext,
     IngestionResult,
@@ -21,15 +22,31 @@ logger = logging.getLogger(__name__)
 class DifyRAGEngine(RAGEngine):
     """RAG Engine powered by Dify Datasets.
 
-    Dify datasets are managed externally via Dify's own interface.
-    This engine only supports retrieval — document ingestion and deletion
-    are not applicable.
+    Supports retrieval, document ingestion (file upload), and deletion
+    via the Dify Dataset API.
     """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Cache creation_settings keyed by kb_id so that delete_document
+        # (which does not receive settings) can look up API credentials.
+        self._kb_configs: dict[str, dict] = {}
 
     @classmethod
     def get_capabilities(cls) -> list[str]:
-        # No DOC_INGESTION: documents are managed in Dify, not via LangBot.
-        return []
+        return [RAGEngineCapability.DOC_INGESTION, RAGEngineCapability.DOC_PARSING]
+
+    # ========== Lifecycle Hooks ==========
+
+    async def on_knowledge_base_create(self, kb_id: str, config: dict) -> None:
+        """Cache the knowledge-base config for later use by delete_document."""
+        self._kb_configs[kb_id] = config
+        logger.info(f"[DifyRAGEngine] Knowledge base created: {kb_id}")
+
+    async def on_knowledge_base_delete(self, kb_id: str) -> None:
+        """Remove cached config when a knowledge base is deleted."""
+        self._kb_configs.pop(kb_id, None)
+        logger.info(f"[DifyRAGEngine] Knowledge base deleted: {kb_id}")
 
     # ========== Core Methods ==========
 
@@ -111,19 +128,141 @@ class DifyRAGEngine(RAGEngine):
         return RetrievalResponse(results=results, total_found=len(results))
 
     async def ingest(self, context: IngestionContext) -> IngestionResult:
-        """Dify datasets are managed externally; ingestion is not supported."""
-        return IngestionResult(
-            document_id=context.file_object.metadata.document_id,
-            status=DocumentStatus.FAILED,
-            error_message="Dify RAG engine does not support document ingestion. "
-                          "Please manage documents directly in Dify.",
-        )
+        """Upload a file to a Dify dataset for indexing."""
+        doc_id = context.file_object.metadata.document_id
+        filename = context.file_object.metadata.filename
+        config = context.creation_settings
+
+        api_base_url = config.get("api_base_url", "https://api.dify.ai/v1").rstrip("/")
+        api_key = config.get("dify_apikey")
+        dataset_id = config.get("dataset_id")
+
+        if not api_key or not dataset_id:
+            logger.error(
+                f"[DifyRAGEngine] Missing required configuration for ingestion. "
+                f"Config keys: {list(config.keys())}"
+            )
+            return IngestionResult(
+                document_id=doc_id,
+                status=DocumentStatus.FAILED,
+                error_message="Missing required config: dify_apikey or dataset_id.",
+            )
+
+        # Cache config keyed by kb_id for later use in delete_document
+        kb_id = context.get_collection_id()
+        self._kb_configs[kb_id] = config
+
+        # 1. Read file content from Host
+        try:
+            file_bytes = await self.plugin.get_rag_file_stream(context.file_object.storage_path)
+        except Exception as e:
+            logger.error(f"[DifyRAGEngine] Failed to read file content: {e}")
+            return IngestionResult(
+                document_id=doc_id,
+                status=DocumentStatus.FAILED,
+                error_message=f"Could not read file: {e}",
+            )
+
+        # 2. Upload to Dify dataset
+        url = f"{api_base_url}/datasets/{dataset_id}/document/create-by-file"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+        }
+
+        try:
+            data_payload = json.dumps({
+                "indexing_technique": "high_quality",
+                "process_rule": {"mode": "automatic"},
+            })
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url,
+                    headers=headers,
+                    files={"file": (filename, file_bytes)},
+                    data={"data": data_payload},
+                    timeout=120.0,
+                )
+                response.raise_for_status()
+                resp_data = response.json()
+
+            dify_document = resp_data.get("document", {})
+            dify_doc_id = dify_document.get("id", doc_id)
+
+            logger.info(
+                f"[DifyRAGEngine] File uploaded: {filename} -> "
+                f"dify_doc_id={dify_doc_id}, status={dify_document.get('indexing_status')}"
+            )
+
+            return IngestionResult(
+                document_id=dify_doc_id,
+                status=DocumentStatus.PROCESSING,
+            )
+
+        except httpx.HTTPStatusError as e:
+            error_body = e.response.text
+            logger.error(
+                f"[DifyRAGEngine] Dify API error during ingestion: "
+                f"status={e.response.status_code}, body={error_body}"
+            )
+            return IngestionResult(
+                document_id=doc_id,
+                status=DocumentStatus.FAILED,
+                error_message=f"Dify API error {e.response.status_code}: {error_body}",
+            )
+        except Exception as e:
+            logger.error(f"[DifyRAGEngine] Ingestion failed for {filename}: {e}")
+            return IngestionResult(
+                document_id=doc_id,
+                status=DocumentStatus.FAILED,
+                error_message=str(e),
+            )
 
     async def delete_document(self, kb_id: str, document_id: str) -> bool:
-        """Dify datasets are managed externally; deletion is not supported."""
-        logger.warning(
-            f"[DifyRAGEngine] Document deletion not supported (doc={document_id}). "
-            "Please manage documents directly in Dify."
-        )
-        return False
+        """Delete a document from a Dify dataset."""
+        config = self._kb_configs.get(kb_id)
+        if not config:
+            logger.warning(
+                f"[DifyRAGEngine] No cached config for kb_id={kb_id}. "
+                "Cannot delete document without API credentials."
+            )
+            return False
+
+        api_base_url = config.get("api_base_url", "https://api.dify.ai/v1").rstrip("/")
+        api_key = config.get("dify_apikey")
+        dataset_id = config.get("dataset_id")
+
+        if not api_key or not dataset_id:
+            logger.error(
+                f"[DifyRAGEngine] Missing required configuration for deletion. "
+                f"Config keys: {list(config.keys())}"
+            )
+            return False
+
+        url = f"{api_base_url}/datasets/{dataset_id}/documents/{document_id}"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+        }
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.delete(url, headers=headers, timeout=30.0)
+                if response.status_code == 204:
+                    logger.info(
+                        f"[DifyRAGEngine] Document deleted: {document_id} "
+                        f"from dataset {dataset_id}"
+                    )
+                    return True
+                response.raise_for_status()
+                # Some Dify versions may return 200 instead of 204
+                logger.info(
+                    f"[DifyRAGEngine] Document deleted: {document_id} "
+                    f"from dataset {dataset_id} (status={response.status_code})"
+                )
+                return True
+        except Exception as e:
+            logger.error(
+                f"[DifyRAGEngine] Failed to delete document {document_id}: {e}"
+            )
+            return False
 
