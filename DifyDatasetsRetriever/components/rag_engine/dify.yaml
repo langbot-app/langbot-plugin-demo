@@ -44,17 +44,18 @@ spec:
         ja_JP: 'Dify ナレッジベース/データセットの ID'
       type: string
       required: true
+  retrieval_schema:
     - name: search_method
       label:
         en_US: Search Method
         zh_Hans: 检索模式
         ja_JP: 検索方法
       description:
-        en_US: 'The search method to use, recommended to select the method that matches your dataset type'
-        zh_Hans: '使用的搜索方法，推荐选择与您的数据集类型匹配的方法'
-        ja_JP: '使用する検索方法，データセットのタイプに合わせて選択することをお勧めします'
+        en_US: 'The search method to use'
+        zh_Hans: '使用的搜索方法'
+        ja_JP: '使用する検索方法'
       type: select
-      default: keyword_search
+      default: semantic_search
       options:
         - name: keyword_search
           label:
@@ -66,6 +67,11 @@ spec:
             en_US: Semantic Search
             zh_Hans: 语义检索
             ja_JP: セマンティック検索
+        - name: full_text_search
+          label:
+            en_US: Full Text Search
+            zh_Hans: 全文检索
+            ja_JP: 全文検索
         - name: hybrid_search
           label:
             en_US: Hybrid Search
@@ -84,10 +90,23 @@ spec:
       type: integer
       default: 5
       required: false
+    - name: score_threshold_enabled
+      label:
+        en_US: Enable Score Threshold
+        zh_Hans: 启用分数阈值
+        ja_JP: スコア閾値を有効化
+      description:
+        en_US: 'Filter results below the minimum score'
+        zh_Hans: '过滤低于最低分数的结果'
+        ja_JP: '最小スコア以下の結果をフィルタリング'
+      type: boolean
+      default: false
+      required: false
     - name: score_threshold
       label:
         en_US: Score Threshold
         zh_Hans: 分数阈值
+        ja_JP: スコア閾値
       description:
         en_US: 'Minimum relevance score (0-1)'
         zh_Hans: '最小相关性分数 (0-1)'
@@ -95,7 +114,22 @@ spec:
       type: float
       default: 0.5
       required: false
-  retrieval_schema: []
+      show_if:
+        field: score_threshold_enabled
+        operator: eq
+        value: true
+    - name: reranking_enable
+      label:
+        en_US: Enable Reranking
+        zh_Hans: 启用重排序
+        ja_JP: リランキングを有効化
+      description:
+        en_US: 'Enable reranking using the model configured in your Dify dataset settings (configure it in Dify console first)'
+        zh_Hans: '启用重排序，将自动使用 Dify 数据集中配置的重排序模型（请先在 Dify 控制台配置）'
+        ja_JP: 'Dify データセット設定で構成されたリランキングモデルを使用（先に Dify コンソールで設定してください）'
+      type: boolean
+      default: false
+      required: false
 execution:
   python:
     path: engine.py

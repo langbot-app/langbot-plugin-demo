@@ -48,18 +48,53 @@ class DifyRAGEngine(RAGEngine):
         self._kb_configs.pop(kb_id, None)
         logger.info(f"[DifyRAGEngine] Knowledge base deleted: {kb_id}")
 
+    # ========== Helper Methods ==========
+
+    async def _fetch_dataset_reranking_config(
+        self, api_base_url: str, api_key: str, dataset_id: str
+    ) -> dict:
+        """Fetch the reranking model config from the Dify dataset settings."""
+        url = f"{api_base_url}/datasets/{dataset_id}"
+        headers = {"Authorization": f"Bearer {api_key}"}
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers, timeout=15.0)
+                response.raise_for_status()
+                data = response.json()
+            retrieval_model = data.get("retrieval_model_dict") or data.get("retrieval_model") or {}
+            reranking = retrieval_model.get("reranking_model", {})
+            mode = retrieval_model.get("reranking_mode")
+            logger.info(
+                f"[DifyRAGEngine] Fetched dataset reranking config: "
+                f"mode={mode}, provider={reranking.get('reranking_provider_name')}, "
+                f"model={reranking.get('reranking_model_name')}"
+            )
+            return {
+                "reranking_mode": mode or "reranking_model",
+                "reranking_model": reranking,
+            }
+        except Exception:
+            logger.exception("[DifyRAGEngine] Failed to fetch dataset reranking config")
+            return {
+                "reranking_mode": "reranking_model",
+                "reranking_model": {"reranking_provider_name": "", "reranking_model_name": ""},
+            }
+
     # ========== Core Methods ==========
 
     async def retrieve(self, context: RetrievalContext) -> RetrievalResponse:
         """Execute retrieval against Dify Dataset API."""
         config = context.creation_settings
+        retrieval = context.retrieval_settings
 
         api_base_url = config.get("api_base_url", "https://api.dify.ai/v1").rstrip("/")
         api_key = config.get("dify_apikey")
         dataset_id = config.get("dataset_id")
-        top_k = config.get("top_k", 5)
-        score_threshold = config.get("score_threshold", 0.5)
-        search_method = config.get("search_method", "keyword_search")
+        top_k = retrieval.get("top_k", 5)
+        score_threshold_enabled = retrieval.get("score_threshold_enabled", False)
+        score_threshold = retrieval.get("score_threshold", 0.5)
+        search_method = retrieval.get("search_method", "semantic_search")
+        reranking_enable = retrieval.get("reranking_enable", False)
 
         if not api_key or not dataset_id:
             logger.error(
@@ -67,6 +102,16 @@ class DifyRAGEngine(RAGEngine):
                 f"Config keys: {list(config.keys())}"
             )
             return RetrievalResponse(results=[], total_found=0)
+
+        # Fetch reranking model config from Dify dataset when reranking is enabled
+        reranking_mode = None
+        reranking_model = {"reranking_provider_name": "", "reranking_model_name": ""}
+        if reranking_enable:
+            reranking_config = await self._fetch_dataset_reranking_config(
+                api_base_url, api_key, dataset_id
+            )
+            reranking_mode = reranking_config["reranking_mode"]
+            reranking_model = reranking_config["reranking_model"]
 
         url = f"{api_base_url}/datasets/{dataset_id}/retrieve"
         headers = {
@@ -77,15 +122,12 @@ class DifyRAGEngine(RAGEngine):
             "query": context.query,
             "retrieval_model": {
                 "search_method": search_method,
-                "reranking_enable": False,
-                "reranking_mode": None,
-                "reranking_model": {
-                    "reranking_provider_name": "",
-                    "reranking_model_name": "",
-                },
+                "reranking_enable": reranking_enable,
+                "reranking_mode": reranking_mode,
+                "reranking_model": reranking_model,
                 "weights": None,
                 "top_k": int(top_k),
-                "score_threshold_enabled": True,
+                "score_threshold_enabled": score_threshold_enabled,
                 "score_threshold": float(score_threshold),
             },
         }
@@ -96,6 +138,14 @@ class DifyRAGEngine(RAGEngine):
                 response = await client.post(url, json=payload, headers=headers, timeout=30.0)
                 response.raise_for_status()
                 data = response.json()
+
+                logger.info(
+                    f"[DifyRAGEngine] Request: search_method={search_method}, top_k={top_k}, "
+                    f"score_threshold_enabled={score_threshold_enabled}, score_threshold={score_threshold}, "
+                    f"reranking_enable={reranking_enable}, reranking_mode={reranking_mode}, "
+                    f"reranking_model={reranking_model}, "
+                    f"Response records count: {len(data.get('records', []))}"
+                )
 
                 for record in data.get("records", []):
                     segment = record.get("segment", {})
