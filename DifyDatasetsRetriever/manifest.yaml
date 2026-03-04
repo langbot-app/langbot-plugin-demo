@@ -17,9 +17,9 @@ metadata:
 spec:
   config: []
   components:
-    KnowledgeRetriever:
-      fromDirs:
-      - path: components/knowledge_retriever/
+    RAGEngine:
+      fromFiles:
+        - components/rag_engine/dify.yaml
 execution:
   python:
     path: main.py

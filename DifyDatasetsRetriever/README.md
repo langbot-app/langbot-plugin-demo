@@ -6,7 +6,7 @@ Retrieve knowledge from Dify knowledge bases using the Dify API.
 
 Please add an external knowledge base in LangBot and select "DifyDatasetsRetriever" as the knowledge retriever type.
 
-### Required Parameters
+### Creation Settings (set when creating a knowledge base)
 
 - **api_base_url**: Base URL for Dify API
   - For Dify Cloud: `https://api.dify.ai/v1` (default)
@@ -14,15 +14,17 @@ Please add an external knowledge base in LangBot and select "DifyDatasetsRetriev
 - **dify_apikey**: Your Dify API key from your Dify instance
 - **dataset_id**: The ID of your Dify knowledge base/dataset
 
-### Optional Parameters
+### Retrieval Settings (adjustable per query)
 
-- **top_k** (default: 5): Maximum number of retrieved results
-- **score_threshold** (default: 0.5): Minimum relevance score (0-1)
-- **search_method** (default: hybrid_search): The search method to use
-  - `hybrid_search`: Hybrid search (default)
+- **search_method** (default: semantic_search): The search method to use
   - `keyword_search`: Keyword-based search
-  - `semantic_search`: Semantic similarity search
+  - `semantic_search`: Semantic similarity search (default)
   - `full_text_search`: Full-text search
+  - `hybrid_search`: Hybrid search combining semantic and full-text
+- **top_k** (default: 5): Maximum number of retrieved results
+- **score_threshold_enabled** (default: false): Whether to enable score threshold filtering
+- **score_threshold** (default: 0.5): Minimum relevance score (0-1), only shown when score threshold is enabled
+- **reranking_enable** (default: false): Enable reranking to improve result quality. The reranking model is automatically fetched from your Dify dataset settings — please configure the reranking model in the Dify console first
 
 ## How to Get Configuration Values
 
@@ -39,8 +41,18 @@ Please add an external knowledge base in LangBot and select "DifyDatasetsRetriev
 2. The dataset ID is in the URL: `https://cloud.dify.ai/datasets/{dataset_id}`
 3. Or you can find it in the API documentation page of your knowledge base
 
+### Configuring Reranking
+
+1. In the Dify console, go to your dataset settings
+2. Enable reranking and select a reranking model (e.g., `cohere/rerank-v3.5`)
+3. Save the settings
+4. In LangBot, enable the "Enable Reranking" toggle — the plugin will automatically use the model configured in Dify
+
 ## API Reference
 
-This plugin uses the Dify Dataset Retrieval API:
-- Endpoint: `POST https://api.dify.ai/v1/datasets/{dataset_id}/retrieve`
+This plugin uses the Dify Dataset API:
+- Retrieval: `POST /v1/datasets/{dataset_id}/retrieve`
+- Dataset info: `GET /v1/datasets/{dataset_id}`
+- Document upload: `POST /v1/datasets/{dataset_id}/document/create-by-file`
+- Document delete: `DELETE /v1/datasets/{dataset_id}/documents/{document_id}`
 - Documentation: https://docs.dify.ai/
