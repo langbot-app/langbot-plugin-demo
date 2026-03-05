@@ -49,14 +49,18 @@ class RAGFlowKnowledgeEngine(KnowledgeEngine):
     async def retrieve(self, context: RetrievalContext) -> RetrievalResponse:
         """Execute retrieval against RAGFlow API."""
         config = context.creation_settings
+        retrieval = context.retrieval_settings
 
         api_base_url = config.get("api_base_url", "http://localhost:9380").rstrip("/")
         api_key = config.get("api_key")
         dataset_ids_str = config.get("dataset_ids", "")
-        top_k = config.get("top_k", 1024)
-        similarity_threshold = config.get("similarity_threshold", 0.2)
-        vector_similarity_weight = config.get("vector_similarity_weight", 0.3)
-        page_size = config.get("page_size", 30)
+        top_k = retrieval.get("top_k", 1024)
+        similarity_threshold = retrieval.get("similarity_threshold", 0.2)
+        vector_similarity_weight = retrieval.get("vector_similarity_weight", 0.3)
+        page_size = retrieval.get("page_size", 30)
+        keyword = retrieval.get("keyword", False)
+        rerank_id = retrieval.get("rerank_id", "")
+        use_kg = retrieval.get("use_kg", False)
 
         if not api_key or not dataset_ids_str:
             logger.error(
@@ -84,9 +88,12 @@ class RAGFlowKnowledgeEngine(KnowledgeEngine):
             "similarity_threshold": float(similarity_threshold),
             "vector_similarity_weight": float(vector_similarity_weight),
             "top_k": int(top_k),
-            "keyword": False,
+            "keyword": keyword,
             "highlight": False,
+            "use_kg": use_kg,
         }
+        if rerank_id:
+            payload["rerank_id"] = rerank_id
 
         results: list[RetrievalResultEntry] = []
         try:
@@ -100,6 +107,13 @@ class RAGFlowKnowledgeEngine(KnowledgeEngine):
                         f"[RAGFlowKnowledgeEngine] API returned error code: {data.get('code')}"
                     )
                     return RetrievalResponse(results=[], total_found=0)
+
+                logger.info(
+                    f"[RAGFlowKnowledgeEngine] Request: vector_weight={vector_similarity_weight}, "
+                    f"top_k={top_k}, page_size={page_size}, threshold={similarity_threshold}, "
+                    f"keyword={keyword}, rerank_id={rerank_id or 'None'}, use_kg={use_kg}, "
+                    f"Response chunks: {len(data.get('data', {}).get('chunks', []))}"
+                )
 
                 for chunk in data.get("data", {}).get("chunks", []):
                     similarity = chunk.get("similarity")

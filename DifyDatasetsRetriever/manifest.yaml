@@ -19,7 +19,7 @@ spec:
   components:
     KnowledgeEngine:
       fromFiles:
-        - components/rag_engine/dify.yaml
+        - components/connector/dify.yaml
 execution:
   python:
     path: main.py
