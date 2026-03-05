@@ -37,9 +37,50 @@ class RAGFlowKnowledgeEngine(KnowledgeEngine):
     # ========== Lifecycle Hooks ==========
 
     async def on_knowledge_base_create(self, kb_id: str, config: dict) -> None:
-        """Cache knowledge-base configuration so delete_document can look it up."""
+        """Cache knowledge-base configuration and validate dataset IDs."""
         logger.info(f"[RAGFlowKnowledgeEngine] Knowledge base created: {kb_id}")
         self._kb_configs[kb_id] = config
+
+        # Validate dataset IDs
+        api_base_url = config.get("api_base_url", "http://localhost:9380").rstrip("/")
+        api_key = config.get("api_key")
+        dataset_ids_str = config.get("dataset_ids", "")
+
+        if not api_key or not dataset_ids_str:
+            return
+
+        dataset_ids = [did.strip() for did in dataset_ids_str.split(",") if did.strip()]
+        if not dataset_ids:
+            return
+
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    f"{api_base_url}/api/v1/datasets",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    params={"page": 1, "page_size": 100},
+                    timeout=15.0,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+
+                if data.get("code") != 0:
+                    logger.warning(
+                        f"[RAGFlowKnowledgeEngine] Failed to validate datasets: {data.get('message')}"
+                    )
+                    return
+
+                existing_ids = {ds["id"] for ds in data.get("data", [])}
+                for did in dataset_ids:
+                    if did in existing_ids:
+                        logger.info(f"[RAGFlowKnowledgeEngine] Dataset {did} validated OK")
+                    else:
+                        logger.warning(
+                            f"[RAGFlowKnowledgeEngine] Dataset {did} NOT found in RAGFlow! "
+                            "Please check the dataset ID."
+                        )
+        except Exception as e:
+            logger.warning(f"[RAGFlowKnowledgeEngine] Dataset validation failed: {e}")
 
     async def on_knowledge_base_delete(self, kb_id: str) -> None:
         """Remove cached configuration for the deleted knowledge base."""
@@ -249,6 +290,62 @@ class RAGFlowKnowledgeEngine(KnowledgeEngine):
                     f"[RAGFlowKnowledgeEngine] File '{filename}' uploaded and parsing triggered "
                     f"(ragflow_doc_id={ragflow_doc_id})"
                 )
+
+                # Auto-trigger GraphRAG construction if enabled
+                auto_graphrag = config.get("auto_graphrag", False)
+                if auto_graphrag:
+                    try:
+                        graphrag_url = f"{api_base_url}/api/v1/datasets/{target_dataset_id}/run_graphrag"
+                        gr_resp = await client.post(
+                            graphrag_url,
+                            headers={**headers, "Content-Type": "application/json"},
+                            timeout=30.0,
+                        )
+                        gr_resp.raise_for_status()
+                        gr_data = gr_resp.json()
+                        if gr_data.get("code") == 0:
+                            task_id = gr_data.get("data", {}).get("graphrag_task_id", "unknown")
+                            logger.info(
+                                f"[RAGFlowKnowledgeEngine] GraphRAG construction triggered "
+                                f"(task_id={task_id})"
+                            )
+                        else:
+                            logger.warning(
+                                f"[RAGFlowKnowledgeEngine] GraphRAG trigger returned: "
+                                f"{gr_data.get('message')}"
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            f"[RAGFlowKnowledgeEngine] Failed to trigger GraphRAG: {e}"
+                        )
+
+                # Auto-trigger RAPTOR construction if enabled
+                auto_raptor = config.get("auto_raptor", False)
+                if auto_raptor:
+                    try:
+                        raptor_url = f"{api_base_url}/api/v1/datasets/{target_dataset_id}/run_raptor"
+                        rp_resp = await client.post(
+                            raptor_url,
+                            headers={**headers, "Content-Type": "application/json"},
+                            timeout=30.0,
+                        )
+                        rp_resp.raise_for_status()
+                        rp_data = rp_resp.json()
+                        if rp_data.get("code") == 0:
+                            task_id = rp_data.get("data", {}).get("raptor_task_id", "unknown")
+                            logger.info(
+                                f"[RAGFlowKnowledgeEngine] RAPTOR construction triggered "
+                                f"(task_id={task_id})"
+                            )
+                        else:
+                            logger.warning(
+                                f"[RAGFlowKnowledgeEngine] RAPTOR trigger returned: "
+                                f"{rp_data.get('message')}"
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            f"[RAGFlowKnowledgeEngine] Failed to trigger RAPTOR: {e}"
+                        )
 
                 return IngestionResult(
                     document_id=ragflow_doc_id,

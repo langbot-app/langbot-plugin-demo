@@ -7,9 +7,9 @@ metadata:
     zh_Hans: RAGFlow 知识库
     ja_JP: RAGFlow 知識ベース
   description:
-    en_US: Retrieve knowledge from RAGFlow knowledge bases
-    zh_Hans: 从 RAGFlow 知识库中检索知识
-    ja_JP: RAGFlow 知識ベースから知識を検索
+    en_US: Retrieve knowledge from or store files into RAGFlow knowledge bases
+    zh_Hans: 从 RAGFlow 知识库中检索知识或向其中存入文件
+    ja_JP: RAGFlow 知識ベースから知識を検索またはファイルを保存
 spec:
   creation_schema:
     - name: api_base_url
@@ -46,6 +46,30 @@ spec:
         ja_JP: '検索するデータセット ID（カンマ区切り、例："id1,id2,id3"）'
       type: string
       required: true
+    - name: auto_graphrag
+      label:
+        en_US: Auto Build Knowledge Graph
+        zh_Hans: 自动构建知识图谱
+        ja_JP: ナレッジグラフ自動構築
+      description:
+        en_US: 'Automatically trigger GraphRAG construction after file ingestion'
+        zh_Hans: '文件上传解析后自动触发知识图谱构建'
+        ja_JP: 'ファイル取り込み後に自動的にナレッジグラフを構築'
+      type: boolean
+      default: false
+      required: false
+    - name: auto_raptor
+      label:
+        en_US: Auto Build RAPTOR
+        zh_Hans: 自动构建 RAPTOR
+        ja_JP: RAPTOR 自動構築
+      description:
+        en_US: 'Automatically trigger RAPTOR hierarchical summarization after file ingestion'
+        zh_Hans: '文件上传解析后自动触发 RAPTOR 层次摘要构建'
+        ja_JP: 'ファイル取り込み後に自動的に RAPTOR 階層要約を構築'
+      type: boolean
+      default: false
+      required: false
   retrieval_schema:
     - name: vector_similarity_weight
       label:
