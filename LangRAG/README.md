@@ -1,4 +1,4 @@
-# SimpleRAGEngine
+# LangRAG
 
 Simple RAG (Retrieval-Augmented Generation) Engine demo plugin for LangBot.
 
@@ -20,7 +20,7 @@ This plugin demonstrates how to build a RAG engine that handles document ingesti
 └──────────┬──────────────────────┘
            │ RPC (IPC)
 ┌──────────▼──────────────────────┐
-│      SimpleRAGEngine            │
+│      LangRAG            │
 │  ┌───────────────────────────┐  │
 │  │       LangRAG Engine      │  │
 │  │  Parse → Chunk → Embed    │  │

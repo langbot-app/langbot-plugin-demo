@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 
-from langbot_plugin.api.definition.components.rag_engine import RAGEngine, RAGEngineCapability
+from langbot_plugin.api.definition.components.rag_engine import KnowledgeEngine, KnowledgeEngineCapability
 from langbot_plugin.api.entities.builtin.rag import (
     IngestionContext,
     IngestionResult,
@@ -20,7 +20,7 @@ from langbot_plugin.api.entities.builtin.provider.message import ContentElement
 logger = logging.getLogger(__name__)
 
 
-class FastGPTRAGEngine(RAGEngine):
+class FastGPTKnowledgeEngine(KnowledgeEngine):
     """RAG Engine powered by FastGPT Datasets.
 
     Supports retrieval via FastGPT's search API, document ingestion by
@@ -36,18 +36,18 @@ class FastGPTRAGEngine(RAGEngine):
 
     @classmethod
     def get_capabilities(cls) -> list[str]:
-        return [RAGEngineCapability.DOC_INGESTION, RAGEngineCapability.DOC_PARSING]
+        return [KnowledgeEngineCapability.DOC_INGESTION, KnowledgeEngineCapability.DOC_PARSING]
 
     # ========== Lifecycle Hooks ==========
 
     async def on_knowledge_base_create(self, kb_id: str, config: dict) -> None:
         """Cache knowledge-base config so delete_document can look it up."""
-        logger.info(f"[FastGPTRAGEngine] Knowledge base created: {kb_id}")
+        logger.info(f"[FastGPTKnowledgeEngine] Knowledge base created: {kb_id}")
         self._kb_configs[kb_id] = config
 
     async def on_knowledge_base_delete(self, kb_id: str) -> None:
         """Remove cached config when a knowledge base is deleted."""
-        logger.info(f"[FastGPTRAGEngine] Knowledge base deleted: {kb_id}")
+        logger.info(f"[FastGPTKnowledgeEngine] Knowledge base deleted: {kb_id}")
         self._kb_configs.pop(kb_id, None)
 
     async def retrieve(self, context: RetrievalContext) -> RetrievalResponse:
@@ -67,7 +67,7 @@ class FastGPTRAGEngine(RAGEngine):
 
         if not api_key or not dataset_id:
             logger.error(
-                f"[FastGPTRAGEngine] Missing required configuration. "
+                f"[FastGPTKnowledgeEngine] Missing required configuration. "
                 f"Config keys: {list(config.keys())}"
             )
             return RetrievalResponse(results=[], total_found=0)
@@ -127,9 +127,9 @@ class FastGPTRAGEngine(RAGEngine):
                         )
                     )
 
-            logger.info(f"[FastGPTRAGEngine] Retrieved {len(results)} chunks from FastGPT.")
+            logger.info(f"[FastGPTKnowledgeEngine] Retrieved {len(results)} chunks from FastGPT.")
         except Exception:
-            logger.exception("[FastGPTRAGEngine] Error during retrieval")
+            logger.exception("[FastGPTKnowledgeEngine] Error during retrieval")
 
         return RetrievalResponse(results=results, total_found=len(results))
 
@@ -145,7 +145,7 @@ class FastGPTRAGEngine(RAGEngine):
 
         if not api_key or not dataset_id:
             logger.error(
-                f"[FastGPTRAGEngine] Missing required configuration for ingestion. "
+                f"[FastGPTKnowledgeEngine] Missing required configuration for ingestion. "
                 f"Config keys: {list(config.keys())}"
             )
             return IngestionResult(
@@ -158,7 +158,7 @@ class FastGPTRAGEngine(RAGEngine):
         try:
             file_bytes = await self.plugin.get_rag_file_stream(context.file_object.storage_path)
         except Exception as e:
-            logger.error(f"[FastGPTRAGEngine] Failed to read file: {e}")
+            logger.error(f"[FastGPTKnowledgeEngine] Failed to read file: {e}")
             return IngestionResult(
                 document_id=doc_id,
                 status=DocumentStatus.FAILED,
@@ -191,7 +191,7 @@ class FastGPTRAGEngine(RAGEngine):
 
             if result.get("code") != 200:
                 error_msg = result.get("message", "Unknown error from FastGPT")
-                logger.error(f"[FastGPTRAGEngine] Upload failed: {error_msg}")
+                logger.error(f"[FastGPTKnowledgeEngine] Upload failed: {error_msg}")
                 return IngestionResult(
                     document_id=doc_id,
                     status=DocumentStatus.FAILED,
@@ -203,7 +203,7 @@ class FastGPTRAGEngine(RAGEngine):
             insert_len = resp_data.get("results", {}).get("insertLen", 0)
 
             logger.info(
-                f"[FastGPTRAGEngine] File uploaded: {filename} -> "
+                f"[FastGPTKnowledgeEngine] File uploaded: {filename} -> "
                 f"collectionId={collection_id}, insertLen={insert_len}"
             )
 
@@ -214,7 +214,7 @@ class FastGPTRAGEngine(RAGEngine):
             )
 
         except Exception as e:
-            logger.error(f"[FastGPTRAGEngine] Ingestion failed for {filename}: {e}")
+            logger.error(f"[FastGPTKnowledgeEngine] Ingestion failed for {filename}: {e}")
             return IngestionResult(
                 document_id=doc_id,
                 status=DocumentStatus.FAILED,
@@ -226,7 +226,7 @@ class FastGPTRAGEngine(RAGEngine):
         config = self._kb_configs.get(kb_id)
         if not config:
             logger.error(
-                f"[FastGPTRAGEngine] No cached config for kb_id={kb_id}. "
+                f"[FastGPTKnowledgeEngine] No cached config for kb_id={kb_id}. "
                 "Cannot delete document."
             )
             return False
@@ -235,7 +235,7 @@ class FastGPTRAGEngine(RAGEngine):
         api_key = config.get("api_key")
 
         if not api_key:
-            logger.error("[FastGPTRAGEngine] Missing api_key in cached config.")
+            logger.error("[FastGPTKnowledgeEngine] Missing api_key in cached config.")
             return False
 
         url = f"{api_base_url}/api/core/dataset/collection/delete"
@@ -255,18 +255,18 @@ class FastGPTRAGEngine(RAGEngine):
 
             if result.get("code") != 200:
                 logger.error(
-                    f"[FastGPTRAGEngine] Delete failed for collection={document_id}: "
+                    f"[FastGPTKnowledgeEngine] Delete failed for collection={document_id}: "
                     f"{result.get('message', 'Unknown error')}"
                 )
                 return False
 
             logger.info(
-                f"[FastGPTRAGEngine] Collection deleted: {document_id}"
+                f"[FastGPTKnowledgeEngine] Collection deleted: {document_id}"
             )
             return True
 
         except Exception:
             logger.exception(
-                f"[FastGPTRAGEngine] Error deleting collection={document_id}"
+                f"[FastGPTKnowledgeEngine] Error deleting collection={document_id}"
             )
             return False

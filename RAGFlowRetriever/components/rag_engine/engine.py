@@ -4,7 +4,7 @@ import logging
 
 import httpx
 
-from langbot_plugin.api.definition.components.rag_engine import RAGEngine, RAGEngineCapability
+from langbot_plugin.api.definition.components.rag_engine import KnowledgeEngine, KnowledgeEngineCapability
 from langbot_plugin.api.entities.builtin.rag import (
     IngestionContext,
     IngestionResult,
@@ -18,7 +18,7 @@ from langbot_plugin.api.entities.builtin.provider.message import ContentElement
 logger = logging.getLogger(__name__)
 
 
-class RAGFlowRAGEngine(RAGEngine):
+class RAGFlowKnowledgeEngine(KnowledgeEngine):
     """RAG Engine powered by RAGFlow.
 
     Supports retrieval, document ingestion (upload + parse), and deletion
@@ -32,18 +32,18 @@ class RAGFlowRAGEngine(RAGEngine):
 
     @classmethod
     def get_capabilities(cls) -> list[str]:
-        return [RAGEngineCapability.DOC_INGESTION, RAGEngineCapability.DOC_PARSING]
+        return [KnowledgeEngineCapability.DOC_INGESTION, KnowledgeEngineCapability.DOC_PARSING]
 
     # ========== Lifecycle Hooks ==========
 
     async def on_knowledge_base_create(self, kb_id: str, config: dict) -> None:
         """Cache knowledge-base configuration so delete_document can look it up."""
-        logger.info(f"[RAGFlowRAGEngine] Knowledge base created: {kb_id}")
+        logger.info(f"[RAGFlowKnowledgeEngine] Knowledge base created: {kb_id}")
         self._kb_configs[kb_id] = config
 
     async def on_knowledge_base_delete(self, kb_id: str) -> None:
         """Remove cached configuration for the deleted knowledge base."""
-        logger.info(f"[RAGFlowRAGEngine] Knowledge base deleted: {kb_id}")
+        logger.info(f"[RAGFlowKnowledgeEngine] Knowledge base deleted: {kb_id}")
         self._kb_configs.pop(kb_id, None)
 
     async def retrieve(self, context: RetrievalContext) -> RetrievalResponse:
@@ -60,7 +60,7 @@ class RAGFlowRAGEngine(RAGEngine):
 
         if not api_key or not dataset_ids_str:
             logger.error(
-                f"[RAGFlowRAGEngine] Missing required configuration. "
+                f"[RAGFlowKnowledgeEngine] Missing required configuration. "
                 f"Config keys: {list(config.keys())}"
             )
             return RetrievalResponse(results=[], total_found=0)
@@ -68,7 +68,7 @@ class RAGFlowRAGEngine(RAGEngine):
         dataset_ids = [did.strip() for did in dataset_ids_str.split(",") if did.strip()]
 
         if not dataset_ids:
-            logger.error("[RAGFlowRAGEngine] No valid dataset IDs provided")
+            logger.error("[RAGFlowKnowledgeEngine] No valid dataset IDs provided")
             return RetrievalResponse(results=[], total_found=0)
 
         url = f"{api_base_url}/api/v1/retrieval"
@@ -97,7 +97,7 @@ class RAGFlowRAGEngine(RAGEngine):
 
                 if data.get("code") != 0:
                     logger.error(
-                        f"[RAGFlowRAGEngine] API returned error code: {data.get('code')}"
+                        f"[RAGFlowKnowledgeEngine] API returned error code: {data.get('code')}"
                     )
                     return RetrievalResponse(results=[], total_found=0)
 
@@ -124,9 +124,9 @@ class RAGFlowRAGEngine(RAGEngine):
                         )
                     )
 
-            logger.info(f"[RAGFlowRAGEngine] Retrieved {len(results)} chunks from RAGFlow.")
+            logger.info(f"[RAGFlowKnowledgeEngine] Retrieved {len(results)} chunks from RAGFlow.")
         except Exception:
-            logger.exception("[RAGFlowRAGEngine] Error during retrieval")
+            logger.exception("[RAGFlowKnowledgeEngine] Error during retrieval")
 
         return RetrievalResponse(results=results, total_found=len(results))
 
@@ -142,7 +142,7 @@ class RAGFlowRAGEngine(RAGEngine):
 
         if not api_key or not dataset_ids_str:
             logger.error(
-                f"[RAGFlowRAGEngine] Missing required configuration for ingestion. "
+                f"[RAGFlowKnowledgeEngine] Missing required configuration for ingestion. "
                 f"Config keys: {list(config.keys())}"
             )
             return IngestionResult(
@@ -153,7 +153,7 @@ class RAGFlowRAGEngine(RAGEngine):
 
         dataset_ids = [did.strip() for did in dataset_ids_str.split(",") if did.strip()]
         if not dataset_ids:
-            logger.error("[RAGFlowRAGEngine] No valid dataset IDs provided for ingestion")
+            logger.error("[RAGFlowKnowledgeEngine] No valid dataset IDs provided for ingestion")
             return IngestionResult(
                 document_id=doc_id,
                 status=DocumentStatus.FAILED,
@@ -167,7 +167,7 @@ class RAGFlowRAGEngine(RAGEngine):
         try:
             file_bytes = await self.plugin.get_rag_file_stream(context.file_object.storage_path)
         except Exception as e:
-            logger.error(f"[RAGFlowRAGEngine] Failed to get file content: {e}")
+            logger.error(f"[RAGFlowKnowledgeEngine] Failed to get file content: {e}")
             return IngestionResult(
                 document_id=doc_id,
                 status=DocumentStatus.FAILED,
@@ -189,7 +189,7 @@ class RAGFlowRAGEngine(RAGEngine):
 
                 if upload_data.get("code") != 0:
                     error_msg = upload_data.get("message", "Unknown upload error")
-                    logger.error(f"[RAGFlowRAGEngine] Upload failed: {error_msg}")
+                    logger.error(f"[RAGFlowKnowledgeEngine] Upload failed: {error_msg}")
                     return IngestionResult(
                         document_id=doc_id,
                         status=DocumentStatus.FAILED,
@@ -199,7 +199,7 @@ class RAGFlowRAGEngine(RAGEngine):
                 # Extract the document ID returned by RAGFlow
                 docs = upload_data.get("data", [])
                 if not docs:
-                    logger.error("[RAGFlowRAGEngine] Upload returned no document data")
+                    logger.error("[RAGFlowKnowledgeEngine] Upload returned no document data")
                     return IngestionResult(
                         document_id=doc_id,
                         status=DocumentStatus.FAILED,
@@ -222,7 +222,7 @@ class RAGFlowRAGEngine(RAGEngine):
                 if parse_data.get("code") != 0:
                     error_msg = parse_data.get("message", "Unknown parsing error")
                     logger.warning(
-                        f"[RAGFlowRAGEngine] Parsing trigger returned error: {error_msg}"
+                        f"[RAGFlowKnowledgeEngine] Parsing trigger returned error: {error_msg}"
                     )
                     # Document was uploaded but parsing failed to start
                     return IngestionResult(
@@ -232,7 +232,7 @@ class RAGFlowRAGEngine(RAGEngine):
                     )
 
                 logger.info(
-                    f"[RAGFlowRAGEngine] File '{filename}' uploaded and parsing triggered "
+                    f"[RAGFlowKnowledgeEngine] File '{filename}' uploaded and parsing triggered "
                     f"(ragflow_doc_id={ragflow_doc_id})"
                 )
 
@@ -242,7 +242,7 @@ class RAGFlowRAGEngine(RAGEngine):
                 )
 
         except Exception as e:
-            logger.error(f"[RAGFlowRAGEngine] Ingestion failed for {filename}: {e}")
+            logger.error(f"[RAGFlowKnowledgeEngine] Ingestion failed for {filename}: {e}")
             return IngestionResult(
                 document_id=doc_id,
                 status=DocumentStatus.FAILED,
@@ -254,7 +254,7 @@ class RAGFlowRAGEngine(RAGEngine):
         config = self._kb_configs.get(kb_id)
         if not config:
             logger.error(
-                f"[RAGFlowRAGEngine] No cached config for kb_id={kb_id}, "
+                f"[RAGFlowKnowledgeEngine] No cached config for kb_id={kb_id}, "
                 "cannot delete document"
             )
             return False
@@ -265,14 +265,14 @@ class RAGFlowRAGEngine(RAGEngine):
 
         if not api_key or not dataset_ids_str:
             logger.error(
-                f"[RAGFlowRAGEngine] Missing api_key or dataset_ids for kb_id={kb_id}"
+                f"[RAGFlowKnowledgeEngine] Missing api_key or dataset_ids for kb_id={kb_id}"
             )
             return False
 
         dataset_ids = [did.strip() for did in dataset_ids_str.split(",") if did.strip()]
         if not dataset_ids:
             logger.error(
-                f"[RAGFlowRAGEngine] No valid dataset IDs for kb_id={kb_id}"
+                f"[RAGFlowKnowledgeEngine] No valid dataset IDs for kb_id={kb_id}"
             )
             return False
 
@@ -296,18 +296,18 @@ class RAGFlowRAGEngine(RAGEngine):
                 if data.get("code") != 0:
                     error_msg = data.get("message", "Unknown error")
                     logger.error(
-                        f"[RAGFlowRAGEngine] Delete failed for doc={document_id}: {error_msg}"
+                        f"[RAGFlowKnowledgeEngine] Delete failed for doc={document_id}: {error_msg}"
                     )
                     return False
 
                 logger.info(
-                    f"[RAGFlowRAGEngine] Document {document_id} deleted from "
+                    f"[RAGFlowKnowledgeEngine] Document {document_id} deleted from "
                     f"dataset {target_dataset_id}"
                 )
                 return True
 
         except Exception:
             logger.exception(
-                f"[RAGFlowRAGEngine] Error deleting document {document_id}"
+                f"[RAGFlowKnowledgeEngine] Error deleting document {document_id}"
             )
             return False

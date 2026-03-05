@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from langbot_plugin.api.definition.plugin import BasePlugin
 
-class SimpleRAGEngine(BasePlugin):
+class LangRAG(BasePlugin):
 
     async def initialize(self) -> None:
         pass

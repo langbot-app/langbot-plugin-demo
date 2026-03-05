@@ -27,7 +27,7 @@ class SimpleParser(Parser):
     """Parser component that extracts structured text from binary files.
 
     Supports PDF, DOCX, Markdown, HTML, and plain text files.
-    Based on the parsing logic from SimpleRAGEngine.
+    Based on the parsing logic from LangRAG.
     """
 
     async def parse(self, context: ParseContext) -> ParseResult:

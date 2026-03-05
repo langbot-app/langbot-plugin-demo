@@ -1,6 +1,6 @@
 import logging
 
-from langbot_plugin.api.definition.components.rag_engine import RAGEngine, RAGEngineCapability
+from langbot_plugin.api.definition.components.rag_engine import KnowledgeEngine, KnowledgeEngineCapability
 from langbot_plugin.api.entities.builtin.rag import (
     IngestionContext,
     IngestionResult,
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 EMBEDDING_BATCH_SIZE = 32
 
 
-class LangRAG(RAGEngine):
+class LangRAG(KnowledgeEngine):
     """Simple RAG Engine implementation using Plugin IPC.
 
     Provides:
@@ -35,7 +35,7 @@ class LangRAG(RAGEngine):
     @classmethod
     def get_capabilities(cls) -> list[str]:
         """Declare supported capabilities."""
-        return [RAGEngineCapability.DOC_INGESTION, RAGEngineCapability.DOC_PARSING]
+        return [KnowledgeEngineCapability.DOC_INGESTION, KnowledgeEngineCapability.DOC_PARSING]
 
     # ========== Lifecycle Hooks ==========
 
