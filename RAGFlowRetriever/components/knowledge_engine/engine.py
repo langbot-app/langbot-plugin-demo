@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class RAGFlowConnector(KnowledgeEngine):
-    """RAG Engine powered by RAGFlow.
+    """Knowledge Engine powered by RAGFlow.
 
     Supports retrieval, document ingestion (upload + parse), and deletion
     via the RAGFlow HTTP API.
@@ -220,7 +220,7 @@ class RAGFlowConnector(KnowledgeEngine):
 
         # 1. Read file content from Host
         try:
-            file_bytes = await self.plugin.get_rag_file_stream(context.file_object.storage_path)
+            file_bytes = await self.plugin.get_knowledge_file_stream(context.file_object.storage_path)
         except Exception as e:
             logger.error(f"[RAGFlowKnowledgeEngine] Failed to get file content: {e}")
             return IngestionResult(

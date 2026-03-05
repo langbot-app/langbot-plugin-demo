@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class DifyDatasetsConnector(KnowledgeEngine):
-    """RAG Engine powered by Dify Datasets.
+    """Knowledge Engine powered by Dify Datasets.
 
     Supports retrieval, document ingestion (file upload), and deletion
     via the Dify Dataset API.
@@ -204,7 +204,7 @@ class DifyDatasetsConnector(KnowledgeEngine):
 
         # 1. Read file content from Host
         try:
-            file_bytes = await self.plugin.get_rag_file_stream(context.file_object.storage_path)
+            file_bytes = await self.plugin.get_knowledge_file_stream(context.file_object.storage_path)
         except Exception as e:
             logger.error(f"[DifyDatasetsConnector] Failed to read file content: {e}")
             return IngestionResult(

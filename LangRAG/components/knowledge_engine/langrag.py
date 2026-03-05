@@ -24,7 +24,7 @@ EMBEDDING_BATCH_SIZE = 32
 
 
 class LangRAG(KnowledgeEngine):
-    """Simple RAG Engine implementation using Plugin IPC.
+    """Simple Knowledge Engine implementation using Plugin IPC.
 
     Provides:
     - Document ingestion with parsing, chunking, embedding, and vector storage
@@ -86,7 +86,7 @@ class LangRAG(KnowledgeEngine):
 
         # 1. Get file content from Host
         try:
-            content_bytes = await self.plugin.get_rag_file_stream(context.file_object.storage_path)
+            content_bytes = await self.plugin.get_knowledge_file_stream(context.file_object.storage_path)
         except Exception as e:
             logger.error(f"Failed to get file content: {e}")
             return IngestionResult(

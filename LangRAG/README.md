@@ -2,7 +2,7 @@
 
 Simple RAG (Retrieval-Augmented Generation) Engine demo plugin for LangBot.
 
-This plugin demonstrates how to build a RAG engine that handles document ingestion and vector retrieval using LangBot Host's built-in infrastructure (Embedding models and Vector Database).
+This plugin demonstrates how to build a Knowledge Engine that handles document ingestion and vector retrieval using LangBot Host's built-in infrastructure (Embedding models and Vector Database).
 
 ## Features
 
@@ -22,7 +22,7 @@ This plugin demonstrates how to build a RAG engine that handles document ingesti
 ┌──────────▼──────────────────────┐
 │      LangRAG            │
 │  ┌───────────────────────────┐  │
-│  │       LangRAG Engine      │  │
+│  │       LangKnowledge Engine      │  │
 │  │  Parse → Chunk → Embed    │  │
 │  │       → Store / Search    │  │
 │  └───────────────────────────┘  │

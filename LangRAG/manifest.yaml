@@ -6,7 +6,7 @@ metadata:
   repository: ''
   version: 0.1.0
   description:
-    en_US: 'Simple RAG Engine - Document ingestion and vector retrieval using Host infrastructure'
+    en_US: 'Simple Knowledge Engine - Document ingestion and vector retrieval using Host infrastructure'
     zh_Hans: '简单 RAG 引擎 - 使用宿主基础设施进行文档摄入和向量检索'
   label:
     en_US: LangRAG

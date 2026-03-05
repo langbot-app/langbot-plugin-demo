@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class FastGPTConnector(KnowledgeEngine):
-    """RAG Engine powered by FastGPT Datasets.
+    """Knowledge Engine powered by FastGPT Datasets.
 
     Supports retrieval via FastGPT's search API, document ingestion by
     uploading files to FastGPT datasets, and document deletion by removing
@@ -156,7 +156,7 @@ class FastGPTConnector(KnowledgeEngine):
 
         # 1. Read file content from Host
         try:
-            file_bytes = await self.plugin.get_rag_file_stream(context.file_object.storage_path)
+            file_bytes = await self.plugin.get_knowledge_file_stream(context.file_object.storage_path)
         except Exception as e:
             logger.error(f"[FastGPTKnowledgeEngine] Failed to read file: {e}")
             return IngestionResult(

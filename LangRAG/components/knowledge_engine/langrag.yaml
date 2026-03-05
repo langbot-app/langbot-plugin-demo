@@ -6,7 +6,7 @@ metadata:
     en_US: LangRAG
     zh_Hans: LangRAG
   description:
-    en_US: Simple RAG Engine with document chunking, vector, full-text, and hybrid retrieval
+    en_US: Simple Knowledge Engine with document chunking, vector, full-text, and hybrid retrieval
     zh_Hans: 简单 RAG 引擎，支持文档分块及向量、全文、混合检索
 spec:
   creation_schema:
