@@ -4,7 +4,7 @@ import logging
 
 import httpx
 
-from langbot_plugin.api.definition.components.rag_engine import KnowledgeEngine, KnowledgeEngineCapability
+from langbot_plugin.api.definition.components.knowledge_engine import KnowledgeEngine, KnowledgeEngineCapability
 from langbot_plugin.api.entities.builtin.rag import (
     IngestionContext,
     IngestionResult,
@@ -18,7 +18,7 @@ from langbot_plugin.api.entities.builtin.provider.message import ContentElement
 logger = logging.getLogger(__name__)
 
 
-class RAGFlowKnowledgeEngine(KnowledgeEngine):
+class RAGFlowConnector(KnowledgeEngine):
     """RAG Engine powered by RAGFlow.
 
     Supports retrieval, document ingestion (upload + parse), and deletion

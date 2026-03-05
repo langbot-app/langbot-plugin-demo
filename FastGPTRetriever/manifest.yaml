@@ -19,7 +19,7 @@ spec:
   components:
     KnowledgeEngine:
       fromFiles:
-        - components/connector/fastgpt.yaml
+        - components/knowledge_engine/fastgpt.yaml
 execution:
   python:
     path: main.py

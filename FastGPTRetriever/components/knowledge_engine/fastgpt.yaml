@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: KnowledgeEngine
 metadata:
-  name: fastgpt-rag
+  name: fastgpt-connector
   label:
     en_US: FastGPT Knowledge Base
     zh_Hans: FastGPT 知识库
@@ -150,4 +150,4 @@ spec:
 execution:
   python:
     path: engine.py
-    attr: FastGPTKnowledgeEngine
+    attr: FastGPTConnector

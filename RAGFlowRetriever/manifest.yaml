@@ -19,7 +19,7 @@ spec:
   components:
     KnowledgeEngine:
       fromFiles:
-        - components/connector/ragflow.yaml
+        - components/knowledge_engine/ragflow.yaml
 execution:
   python:
     path: main.py

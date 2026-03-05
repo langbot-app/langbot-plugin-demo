@@ -5,7 +5,7 @@ import logging
 
 import httpx
 
-from langbot_plugin.api.definition.components.rag_engine import KnowledgeEngine, KnowledgeEngineCapability
+from langbot_plugin.api.definition.components.knowledge_engine import KnowledgeEngine, KnowledgeEngineCapability
 from langbot_plugin.api.entities.builtin.rag import (
     IngestionContext,
     IngestionResult,
@@ -19,7 +19,7 @@ from langbot_plugin.api.entities.builtin.provider.message import ContentElement
 logger = logging.getLogger(__name__)
 
 
-class DifyKnowledgeEngine(KnowledgeEngine):
+class DifyDatasetsConnector(KnowledgeEngine):
     """RAG Engine powered by Dify Datasets.
 
     Supports retrieval, document ingestion (file upload), and deletion
@@ -41,12 +41,12 @@ class DifyKnowledgeEngine(KnowledgeEngine):
     async def on_knowledge_base_create(self, kb_id: str, config: dict) -> None:
         """Cache the knowledge-base config for later use by delete_document."""
         self._kb_configs[kb_id] = config
-        logger.info(f"[DifyKnowledgeEngine] Knowledge base created: {kb_id}")
+        logger.info(f"[DifyDatasetsConnector] Knowledge base created: {kb_id}")
 
     async def on_knowledge_base_delete(self, kb_id: str) -> None:
         """Remove cached config when a knowledge base is deleted."""
         self._kb_configs.pop(kb_id, None)
-        logger.info(f"[DifyKnowledgeEngine] Knowledge base deleted: {kb_id}")
+        logger.info(f"[DifyDatasetsConnector] Knowledge base deleted: {kb_id}")
 
     # ========== Helper Methods ==========
 
@@ -65,7 +65,7 @@ class DifyKnowledgeEngine(KnowledgeEngine):
             reranking = retrieval_model.get("reranking_model", {})
             mode = retrieval_model.get("reranking_mode")
             logger.info(
-                f"[DifyKnowledgeEngine] Fetched dataset reranking config: "
+                f"[DifyDatasetsConnector] Fetched dataset reranking config: "
                 f"mode={mode}, provider={reranking.get('reranking_provider_name')}, "
                 f"model={reranking.get('reranking_model_name')}"
             )
@@ -74,7 +74,7 @@ class DifyKnowledgeEngine(KnowledgeEngine):
                 "reranking_model": reranking,
             }
         except Exception:
-            logger.exception("[DifyKnowledgeEngine] Failed to fetch dataset reranking config")
+            logger.exception("[DifyDatasetsConnector] Failed to fetch dataset reranking config")
             return {
                 "reranking_mode": "reranking_model",
                 "reranking_model": {"reranking_provider_name": "", "reranking_model_name": ""},
@@ -98,7 +98,7 @@ class DifyKnowledgeEngine(KnowledgeEngine):
 
         if not api_key or not dataset_id:
             logger.error(
-                f"[DifyKnowledgeEngine] Missing required configuration. "
+                f"[DifyDatasetsConnector] Missing required configuration. "
                 f"Config keys: {list(config.keys())}"
             )
             return RetrievalResponse(results=[], total_found=0)
@@ -140,7 +140,7 @@ class DifyKnowledgeEngine(KnowledgeEngine):
                 data = response.json()
 
                 logger.info(
-                    f"[DifyKnowledgeEngine] Request: search_method={search_method}, top_k={top_k}, "
+                    f"[DifyDatasetsConnector] Request: search_method={search_method}, top_k={top_k}, "
                     f"score_threshold_enabled={score_threshold_enabled}, score_threshold={score_threshold}, "
                     f"reranking_enable={reranking_enable}, reranking_mode={reranking_mode}, "
                     f"reranking_model={reranking_model}, "
@@ -171,9 +171,9 @@ class DifyKnowledgeEngine(KnowledgeEngine):
                         )
                     )
 
-            logger.info(f"[DifyKnowledgeEngine] Retrieved {len(results)} chunks from Dify.")
+            logger.info(f"[DifyDatasetsConnector] Retrieved {len(results)} chunks from Dify.")
         except Exception:
-            logger.exception("[DifyKnowledgeEngine] Error during retrieval")
+            logger.exception("[DifyDatasetsConnector] Error during retrieval")
 
         return RetrievalResponse(results=results, total_found=len(results))
 
@@ -189,7 +189,7 @@ class DifyKnowledgeEngine(KnowledgeEngine):
 
         if not api_key or not dataset_id:
             logger.error(
-                f"[DifyKnowledgeEngine] Missing required configuration for ingestion. "
+                f"[DifyDatasetsConnector] Missing required configuration for ingestion. "
                 f"Config keys: {list(config.keys())}"
             )
             return IngestionResult(
@@ -206,7 +206,7 @@ class DifyKnowledgeEngine(KnowledgeEngine):
         try:
             file_bytes = await self.plugin.get_rag_file_stream(context.file_object.storage_path)
         except Exception as e:
-            logger.error(f"[DifyKnowledgeEngine] Failed to read file content: {e}")
+            logger.error(f"[DifyDatasetsConnector] Failed to read file content: {e}")
             return IngestionResult(
                 document_id=doc_id,
                 status=DocumentStatus.FAILED,
@@ -240,7 +240,7 @@ class DifyKnowledgeEngine(KnowledgeEngine):
             dify_doc_id = dify_document.get("id", doc_id)
 
             logger.info(
-                f"[DifyKnowledgeEngine] File uploaded: {filename} -> "
+                f"[DifyDatasetsConnector] File uploaded: {filename} -> "
                 f"dify_doc_id={dify_doc_id}, status={dify_document.get('indexing_status')}"
             )
 
@@ -252,7 +252,7 @@ class DifyKnowledgeEngine(KnowledgeEngine):
         except httpx.HTTPStatusError as e:
             error_body = e.response.text
             logger.error(
-                f"[DifyKnowledgeEngine] Dify API error during ingestion: "
+                f"[DifyDatasetsConnector] Dify API error during ingestion: "
                 f"status={e.response.status_code}, body={error_body}"
             )
             return IngestionResult(
@@ -261,7 +261,7 @@ class DifyKnowledgeEngine(KnowledgeEngine):
                 error_message=f"Dify API error {e.response.status_code}: {error_body}",
             )
         except Exception as e:
-            logger.error(f"[DifyKnowledgeEngine] Ingestion failed for {filename}: {e}")
+            logger.error(f"[DifyDatasetsConnector] Ingestion failed for {filename}: {e}")
             return IngestionResult(
                 document_id=doc_id,
                 status=DocumentStatus.FAILED,
@@ -273,7 +273,7 @@ class DifyKnowledgeEngine(KnowledgeEngine):
         config = self._kb_configs.get(kb_id)
         if not config:
             logger.warning(
-                f"[DifyKnowledgeEngine] No cached config for kb_id={kb_id}. "
+                f"[DifyDatasetsConnector] No cached config for kb_id={kb_id}. "
                 "Cannot delete document without API credentials."
             )
             return False
@@ -284,7 +284,7 @@ class DifyKnowledgeEngine(KnowledgeEngine):
 
         if not api_key or not dataset_id:
             logger.error(
-                f"[DifyKnowledgeEngine] Missing required configuration for deletion. "
+                f"[DifyDatasetsConnector] Missing required configuration for deletion. "
                 f"Config keys: {list(config.keys())}"
             )
             return False
@@ -299,20 +299,20 @@ class DifyKnowledgeEngine(KnowledgeEngine):
                 response = await client.delete(url, headers=headers, timeout=30.0)
                 if response.status_code == 204:
                     logger.info(
-                        f"[DifyKnowledgeEngine] Document deleted: {document_id} "
+                        f"[DifyDatasetsConnector] Document deleted: {document_id} "
                         f"from dataset {dataset_id}"
                     )
                     return True
                 response.raise_for_status()
                 # Some Dify versions may return 200 instead of 204
                 logger.info(
-                    f"[DifyKnowledgeEngine] Document deleted: {document_id} "
+                    f"[DifyDatasetsConnector] Document deleted: {document_id} "
                     f"from dataset {dataset_id} (status={response.status_code})"
                 )
                 return True
         except Exception as e:
             logger.error(
-                f"[DifyKnowledgeEngine] Failed to delete document {document_id}: {e}"
+                f"[DifyDatasetsConnector] Failed to delete document {document_id}: {e}"
             )
             return False
 

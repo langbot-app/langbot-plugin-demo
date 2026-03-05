@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: KnowledgeEngine
 metadata:
-  name: dify-rag
+  name: dify-connector
   label:
     en_US: Dify Knowledge Base
     zh_Hans: Dify 知识库
@@ -133,4 +133,4 @@ spec:
 execution:
   python:
     path: engine.py
-    attr: DifyKnowledgeEngine
+    attr: DifyDatasetsConnector

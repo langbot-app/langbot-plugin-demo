@@ -19,7 +19,7 @@ spec:
   components:
     KnowledgeEngine:
       fromFiles:
-        - components/connector/dify.yaml
+        - components/knowledge_engine/dify.yaml
 execution:
   python:
     path: main.py

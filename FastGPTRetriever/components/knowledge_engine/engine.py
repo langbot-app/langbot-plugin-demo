@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 
-from langbot_plugin.api.definition.components.rag_engine import KnowledgeEngine, KnowledgeEngineCapability
+from langbot_plugin.api.definition.components.knowledge_engine import KnowledgeEngine, KnowledgeEngineCapability
 from langbot_plugin.api.entities.builtin.rag import (
     IngestionContext,
     IngestionResult,
@@ -20,7 +20,7 @@ from langbot_plugin.api.entities.builtin.provider.message import ContentElement
 logger = logging.getLogger(__name__)
 
 
-class FastGPTKnowledgeEngine(KnowledgeEngine):
+class FastGPTConnector(KnowledgeEngine):
     """RAG Engine powered by FastGPT Datasets.
 
     Supports retrieval via FastGPT's search API, document ingestion by

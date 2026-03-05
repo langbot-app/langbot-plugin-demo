@@ -1,6 +1,6 @@
 import logging
 
-from langbot_plugin.api.definition.components.rag_engine import KnowledgeEngine, KnowledgeEngineCapability
+from langbot_plugin.api.definition.components.knowledge_engine import KnowledgeEngine, KnowledgeEngineCapability
 from langbot_plugin.api.entities.builtin.rag import (
     IngestionContext,
     IngestionResult,

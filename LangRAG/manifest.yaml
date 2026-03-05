@@ -17,8 +17,8 @@ spec:
   config: []
   components:
     KnowledgeEngine:
-      fromDirs:
-        - path: components/rag_engine/
+      fromFiles:
+        - components/knowledge_engine/langrag.yaml
 
 execution:
   python:
