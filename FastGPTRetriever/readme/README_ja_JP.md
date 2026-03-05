@@ -1,4 +1,4 @@
-# FastGPTRetriever
+# FastGPTConnector
 
 FastGPT APIを使用してFastGPTナレッジベースから知識を取得します。
 

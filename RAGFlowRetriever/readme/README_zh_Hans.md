@@ -1,4 +1,4 @@
-# RAGFlowRetriever
+# RAGFlowConnector
 
 使用 RAGFlow API 从 RAGFlow 知识库中检索知识。
 

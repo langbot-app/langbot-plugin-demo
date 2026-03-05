@@ -1,4 +1,4 @@
-# RAGFlowRetriever
+# RAGFlowConnector
 
 RAGFlow APIを使用してRAGFlowナレッジベースから知識を取得します。
 

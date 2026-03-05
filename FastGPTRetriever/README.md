@@ -1,4 +1,4 @@
-# FastGPTRetriever
+# FastGPTConnector
 
 Retrieve knowledge from FastGPT knowledge bases using the FastGPT API.
 

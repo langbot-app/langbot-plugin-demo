@@ -1,4 +1,4 @@
-# FastGPTRetriever
+# FastGPTConnector
 
 使用 FastGPT API 从 FastGPT 知识库中检索知识。
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from langbot_plugin.api.definition.plugin import BasePlugin
 
-class RAGFlowRetriever(BasePlugin):
+class RAGFlowConnector(BasePlugin):
 
     async def initialize(self) -> None:
         # Will be called when plugin is launching

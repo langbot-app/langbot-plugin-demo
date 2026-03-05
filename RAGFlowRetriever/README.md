@@ -1,4 +1,4 @@
-# RAGFlowRetriever
+# RAGFlowConnector
 
 Retrieve knowledge from RAGFlow knowledge bases using the RAGFlow API.
 
