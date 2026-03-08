@@ -6,7 +6,9 @@ import asyncio
 import logging
 from typing import Callable, Any
 
-import PyPDF2
+import base64
+
+import fitz
 from docx import Document
 import chardet
 import markdown
@@ -49,12 +51,18 @@ class GeneralParsers(Parser):
             extension = ''
 
         parser_method = getattr(self, f'_parse_{extension}', None)
+        extra_metadata = {}
         if parser_method is None:
             logger.warning(f'Unsupported file format: {extension} for {filename}, trying as text')
             text = self._decode_text(file_bytes)
         else:
             try:
-                text = await parser_method(file_bytes, filename)
+                result = await parser_method(file_bytes, filename)
+                # PDF parser returns (text, extra_metadata), others return str
+                if isinstance(result, tuple):
+                    text, extra_metadata = result
+                else:
+                    text = result
             except Exception as e:
                 logger.error(f'Failed to parse {extension} file {filename}: {e}')
                 text = None
@@ -64,14 +72,17 @@ class GeneralParsers(Parser):
 
         sections = self._split_sections(text, filename)
 
+        metadata = {
+            'filename': filename,
+            'mime_type': context.mime_type,
+            'extension': extension,
+        }
+        metadata.update(extra_metadata)
+
         return ParseResult(
             text=text,
             sections=sections,
-            metadata={
-                'filename': filename,
-                'mime_type': context.mime_type,
-                'extension': extension,
-            },
+            metadata=metadata,
         )
 
     # ========== Section Extraction ==========
@@ -146,17 +157,106 @@ class GeneralParsers(Parser):
         logger.info(f'Parsing TXT file: {filename}')
         return self._decode_text(file_bytes)
 
-    async def _parse_pdf(self, file_bytes: bytes, filename: str) -> str:
+    async def _parse_pdf(self, file_bytes: bytes, filename: str) -> tuple[str, dict]:
+        """Parse PDF using PyMuPDF with table extraction, image extraction, and position-aware text.
+
+        Returns:
+            A tuple of (text, extra_metadata) where extra_metadata contains extracted images.
+        """
         logger.info(f'Parsing PDF file: {filename}')
 
         def _sync():
-            pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
-            text_content = []
-            for page in pdf_reader.pages:
-                text = page.extract_text()
-                if text:
-                    text_content.append(text)
-            return '\n'.join(text_content)
+            doc = fitz.open(stream=file_bytes, filetype='pdf')
+            page_texts = []
+            images = []
+
+            for page_idx, page in enumerate(doc):
+                page_num = page_idx + 1
+
+                # --- Collect table regions to avoid duplicating table text ---
+                tables = page.find_tables()
+                table_rects = []
+                table_entries = []  # (y0, markdown_str)
+                for table in tables:
+                    bbox = fitz.Rect(table.bbox)
+                    table_rects.append(bbox)
+                    md = _pymupdf_table_to_markdown(table)
+                    if md:
+                        table_entries.append((bbox.y0, md))
+
+                # --- Extract text blocks with position info ---
+                text_dict = page.get_text('dict', flags=fitz.TEXT_PRESERVE_WHITESPACE)
+                text_entries = []  # (y0, text_str)
+                for block in text_dict.get('blocks', []):
+                    if block['type'] != 0:  # skip image blocks
+                        continue
+                    block_rect = fitz.Rect(block['bbox'])
+
+                    # Skip text blocks that overlap significantly with a table region
+                    in_table = False
+                    for tr in table_rects:
+                        overlap = block_rect & tr  # intersection
+                        if not overlap.is_empty and overlap.height > block_rect.height * 0.5:
+                            in_table = True
+                            break
+                    if in_table:
+                        continue
+
+                    lines_text = []
+                    for line in block.get('lines', []):
+                        spans_text = ''.join(span['text'] for span in line.get('spans', []))
+                        stripped = spans_text.strip()
+                        if stripped:
+                            lines_text.append(stripped)
+                    if lines_text:
+                        text_entries.append((block['bbox'][1], '\n'.join(lines_text)))
+
+                # --- Merge text and table entries by vertical position ---
+                all_entries = []
+                for y0, text in text_entries:
+                    all_entries.append((y0, 'text', text))
+                for y0, md in table_entries:
+                    all_entries.append((y0, 'table', md))
+                all_entries.sort(key=lambda e: e[0])
+
+                page_parts = []
+                for _, kind, content in all_entries:
+                    if kind == 'table':
+                        page_parts.append('\n' + content + '\n')
+                    else:
+                        page_parts.append(content)
+
+                # --- Extract images ---
+                for img_idx, img_info in enumerate(page.get_images(full=True)):
+                    xref = img_info[0]
+                    try:
+                        pix = fitz.Pixmap(doc, xref)
+                        # Convert CMYK / other color spaces to RGB
+                        if pix.n - pix.alpha > 3:
+                            pix = fitz.Pixmap(fitz.csRGB, pix)
+                        img_bytes = pix.tobytes('png')
+                        img_b64 = base64.b64encode(img_bytes).decode('ascii')
+                        images.append({
+                            'page': page_num,
+                            'index': img_idx,
+                            'width': pix.width,
+                            'height': pix.height,
+                            'base64': img_b64,
+                        })
+                        page_parts.append(f'[图片: 第{page_num}页-图片{img_idx + 1}]')
+                    except Exception as e:
+                        logger.warning(f'Failed to extract image xref={xref} on page {page_num}: {e}')
+
+                if page_parts:
+                    page_texts.append('\n'.join(page_parts))
+
+            doc.close()
+
+            full_text = '\n\n'.join(page_texts)
+            extra_metadata = {}
+            if images:
+                extra_metadata['images'] = images
+            return full_text, extra_metadata
 
         return await self._run_sync(_sync)
 
@@ -266,5 +366,33 @@ def _extract_table(table_element) -> str:
     for row_cells in rows:
         padded = row_cells + [''] * (len(headers) - len(row_cells)) if headers else row_cells
         lines.append(' | '.join(padded))
+
+    return '\n'.join(lines)
+
+
+def _pymupdf_table_to_markdown(table) -> str:
+    """Convert a PyMuPDF Table object into a Markdown table string."""
+    data = table.extract()
+    if not data:
+        return ''
+
+    # Clean cell values: replace None with empty string, strip whitespace
+    cleaned = []
+    for row in data:
+        cleaned.append([str(cell).strip() if cell is not None else '' for cell in row])
+
+    if not cleaned:
+        return ''
+
+    # First row as header
+    header = cleaned[0]
+    lines = [
+        '| ' + ' | '.join(header) + ' |',
+        '| ' + ' | '.join(['---'] * len(header)) + ' |',
+    ]
+    for row in cleaned[1:]:
+        # Pad or trim row to match header length
+        padded = row + [''] * (len(header) - len(row)) if len(row) < len(header) else row[:len(header)]
+        lines.append('| ' + ' | '.join(padded) + ' |')
 
     return '\n'.join(lines)
