@@ -235,10 +235,11 @@ class LangRAG(KnowledgeEngine):
             raw_score = res.get("score")
             distance = res.get("distance", raw_score)
 
+            doc_name = res.get("metadata", {}).get("document_name", "")
             entries.append(
                 RetrievalResultEntry(
                     id=res["id"],
-                    content=[{"type": "text", "text": content_text}],
+                    content=[{"type": "text", "text": content_text, "file_name": doc_name}],
                     metadata=res.get("metadata", {}),
                     score=raw_score,
                     distance=distance,
