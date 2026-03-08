@@ -16,7 +16,7 @@ metadata:
 spec:
   config: []
   components:
-    GeneralParsers:
+    Parser:
       fromDirs:
         - path: components/general_parsers/
 
