@@ -3,16 +3,16 @@ kind: Plugin
 metadata:
   author: langbot-team
   name: FastGPTConnector
-  repository: ''
+  repository: 'https://github.com/langbot-app/langbot-plugin-demo'
   version: 0.1.0
   description:
     en_US: Retrieve knowledge from FastGPT knowledge bases
-    zh_Hans: 从 FastGPT 知识库中检索知识
+    zh_Hans: 集成 FastGPT 知识库
     ja_JP: FastGPT ナレッジベースから知識を取得
   label:
-    en_US: FastGPT Knowledge Base Retriever
-    zh_Hans: FastGPT 知识库检索器
-    ja_JP: FastGPT ナレッジベース検索器
+    en_US: FastGPT Knowledge Base
+    zh_Hans: FastGPT 知识库
+    ja_JP: FastGPT ナレッジベース
   icon: assets/icon.svg
 spec:
   config: []

@@ -3,16 +3,16 @@ kind: Plugin
 metadata:
   author: langbot-team
   name: DifyDatasetsConnector
-  repository: ''
+  repository: 'https://github.com/langbot-app/langbot-plugin-demo'
   version: 0.1.1
   description:
     en_US: Retrieve knowledge from or store files into Dify knowledge bases
     zh_Hans: 从 Dify 知识库中检索知识或向其中存入文件
     ja_JP: Dify 知識ベースから知識を検索または保存
   label:
-    en_US: DifyKnowledgeBaseRetriever
-    zh_Hans: Dify 知识库检索器
-    ja_JP: Dify 知識ベース検索器
+    en_US: DifyKnowledgeBase
+    zh_Hans: Dify 知识库
+    ja_JP: Dify 知識ベース
   icon: assets/icon.svg
 spec:
   config: []
