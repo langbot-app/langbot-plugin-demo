@@ -89,16 +89,79 @@ class GeneralParsers(Parser):
 
     @staticmethod
     def _split_sections(text: str, filename: str) -> list[TextSection]:
-        """Split text into sections based on heading patterns."""
+        """Split text into sections based on heading patterns.
+
+        Supports Markdown headings, Chinese chapter/section numbering,
+        numeric outlines (1. / 1.1 / 1.1.1), and English chapter/section labels.
+        """
         if not text:
             return []
 
-        # Try to split by markdown-style headings
-        heading_pattern = re.compile(r'^(#{1,6})\s+(.+)$', re.MULTILINE)
-        matches = list(heading_pattern.finditer(text))
+        # Each pattern: (compiled regex, level_func(match) -> int, heading_func(match) -> str)
+        heading_patterns = [
+            # Markdown: # ~ ######
+            (
+                re.compile(r'^(#{1,6})\s+(.+)$', re.MULTILINE),
+                lambda m: len(m.group(1)),
+                lambda m: m.group(2).strip(),
+            ),
+            # 第一章/第1章/第一篇/第一部
+            (
+                re.compile(r'^第[一二三四五六七八九十百千\d]+[章篇部]\s*(.+)$', re.MULTILINE),
+                lambda m: 1,
+                lambda m: m.group(0).strip(),
+            ),
+            # 第一节
+            (
+                re.compile(r'^第[一二三四五六七八九十百千\d]+[节]\s*(.+)$', re.MULTILINE),
+                lambda m: 2,
+                lambda m: m.group(0).strip(),
+            ),
+            # 1.1.1 xxx (check before 1.1 and 1.)
+            (
+                re.compile(r'^(\d+\.\d+\.\d+)\s+(.+)$', re.MULTILINE),
+                lambda m: 3,
+                lambda m: m.group(0).strip(),
+            ),
+            # 1.1 xxx
+            (
+                re.compile(r'^(\d+\.\d+)\s+(.+)$', re.MULTILINE),
+                lambda m: 2,
+                lambda m: m.group(0).strip(),
+            ),
+            # 1. xxx (top-level numbered)
+            (
+                re.compile(r'^(\d+)\.\s+(.+)$', re.MULTILINE),
+                lambda m: 1,
+                lambda m: m.group(0).strip(),
+            ),
+            # Chapter 1: xxx / CHAPTER I: xxx
+            (
+                re.compile(r'^(?:Chapter|CHAPTER)\s+\w+\s*[.:：]\s*(.+)$', re.MULTILINE),
+                lambda m: 1,
+                lambda m: m.group(0).strip(),
+            ),
+            # Section 1: xxx / SECTION 1: xxx
+            (
+                re.compile(r'^(?:Section|SECTION)\s+\w+\s*[.:：]\s*(.+)$', re.MULTILINE),
+                lambda m: 2,
+                lambda m: m.group(0).strip(),
+            ),
+            # Article 1: xxx / ARTICLE 1: xxx
+            (
+                re.compile(r'^(?:Article|ARTICLE)\s+\w+\s*[.:：]\s*(.+)$', re.MULTILINE),
+                lambda m: 2,
+                lambda m: m.group(0).strip(),
+            ),
+        ]
 
-        if not matches:
-            # No headings found, return single section
+        # Collect all heading matches: (start, end, level, heading_text)
+        all_matches = []
+        for pattern, level_func, heading_func in heading_patterns:
+            for m in pattern.finditer(text):
+                all_matches.append((m.start(), m.end(), level_func(m), heading_func(m)))
+
+        if not all_matches:
             return [
                 TextSection(
                     content=text,
@@ -107,13 +170,22 @@ class GeneralParsers(Parser):
                 )
             ]
 
+        # Sort by position in text; for overlapping matches keep the earliest/longest
+        all_matches.sort(key=lambda x: (x[0], -x[1]))
+
+        # Deduplicate overlapping matches: if two matches overlap, keep the first one
+        deduped = []
+        last_end = -1
+        for start, end, level, heading in all_matches:
+            if start >= last_end:
+                deduped.append((start, end, level, heading))
+                last_end = end
+
         sections = []
-        for i, match in enumerate(matches):
-            level = len(match.group(1))
-            heading = match.group(2).strip()
-            start = match.end()
-            end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-            content = text[start:end].strip()
+        for i, (start, end, level, heading) in enumerate(deduped):
+            content_start = end
+            content_end = deduped[i + 1][0] if i + 1 < len(deduped) else len(text)
+            content = text[content_start:content_end].strip()
             if content:
                 sections.append(
                     TextSection(
@@ -124,7 +196,7 @@ class GeneralParsers(Parser):
                 )
 
         # Include text before first heading if any
-        preamble = text[: matches[0].start()].strip()
+        preamble = text[: deduped[0][0]].strip()
         if preamble:
             sections.insert(
                 0,
