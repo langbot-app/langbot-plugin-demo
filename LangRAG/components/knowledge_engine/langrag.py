@@ -96,9 +96,13 @@ class LangRAG(KnowledgeEngine):
             )
 
         try:
-            # 2. Parse file content
-            parser = FileParser()
-            text_content = await parser.parse(content_bytes, filename)
+            # 2. Parse file content (prefer pre-parsed content from external Parser plugin)
+            if context.parsed_content and context.parsed_content.text:
+                text_content = context.parsed_content.text
+                logger.info(f"Using pre-parsed content from external parser for {filename}")
+            else:
+                parser = FileParser()
+                text_content = await parser.parse(content_bytes, filename)
 
             if not text_content:
                 logger.warning(f"No text content extracted from file: {filename}")
