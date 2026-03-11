@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: Tool
+metadata:
+  name: query_knowledge
+  label:
+    en_US: QueryKnowledge
+    zh_Hans: 知识库查询
+  description:
+    en_US: 'Query knowledge bases configured for the current pipeline. Supports listing available KBs and retrieving documents.'
+    zh_Hans: '查询当前 pipeline 配置的知识库，支持列出可用知识库和检索文档。'
+spec:
+  parameters:
+    type: object
+    properties:
+      action:
+        type: string
+        enum:
+          - list
+          - query
+        description: 'Action to perform: "list" to list available knowledge bases, "query" to search a specific knowledge base.'
+      kb_id:
+        type: string
+        description: 'Knowledge base UUID to query. Required when action is "query". Obtain from the "list" action result.'
+      query_text:
+        type: string
+        description: 'Search query text. Required when action is "query". Construct a clear, specific query for best retrieval results.'
+      top_k:
+        type: integer
+        description: 'Number of results to return. Optional, default is 5. Only used when action is "query".'
+    required:
+      - action
+  llm_prompt: |
+    Search and retrieve information from knowledge bases.
+
+    Usage:
+    1. First call with action="list" to see available knowledge bases and their descriptions.
+    2. Choose the most relevant knowledge base based on its name and description.
+    3. Call with action="query", providing kb_id (from step 1), and a clear query_text.
+    4. If results are insufficient, try rephrasing the query or searching a different knowledge base.
+
+    Tips:
+    - Always list knowledge bases first to know what's available.
+    - Craft specific, targeted queries for better retrieval results.
+    - You can call this tool multiple times with different queries or knowledge bases.
+execution:
+  python:
+    path: query_knowledge.py
+    attr: QueryKnowledge
