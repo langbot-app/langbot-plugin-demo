@@ -39,8 +39,12 @@ class ParentChildStrategy(IndexStrategy):
         creation_settings: dict,
         plugin=None,
     ) -> AsyncGenerator[tuple[list[str], list[str], list[dict]], None]:
-        parent_size = creation_settings.get("parent_chunk_size") or DEFAULT_PARENT_CHUNK_SIZE
-        child_size = creation_settings.get("child_chunk_size") or DEFAULT_CHILD_CHUNK_SIZE
+        parent_size = (
+            creation_settings.get("parent_chunk_size") or DEFAULT_PARENT_CHUNK_SIZE
+        )
+        child_size = (
+            creation_settings.get("child_chunk_size") or DEFAULT_CHILD_CHUNK_SIZE
+        )
         overlap = creation_settings.get("overlap") or DEFAULT_CHUNK_OVERLAP
 
         # Split into parent chunks (no overlap between parents)
@@ -55,20 +59,34 @@ class ParentChildStrategy(IndexStrategy):
             for c_idx, child in enumerate(child_chunks):
                 texts_to_embed.append(child)
                 ids.append(f"{doc_id}_p{p_idx}_c{c_idx}")
-                metadatas.append({
-                    "file_id": doc_id,
-                    "document_id": doc_id,
-                    "document_name": filename,
-                    "parent_index": p_idx,
-                    "child_text": child,
-                    "text": parent,  # retrieval returns parent context
-                    "index_type": "parent_child",
-                })
+                metadatas.append(
+                    {
+                        "file_id": doc_id,
+                        "document_id": doc_id,
+                        "document_name": filename,
+                        "parent_index": p_idx,
+                        "child_text": child,
+                        "text": parent,  # retrieval returns parent context
+                        "index_type": "parent_child",
+                    }
+                )
 
         yield texts_to_embed, ids, metadatas
 
     def postprocess_results(self, results: list[dict], top_k: int) -> list[dict]:
         """Deduplicate by parent chunk, keeping the highest-scoring child."""
+
+        def _metric(res: dict) -> tuple[int, float]:
+            distance = res.get("distance")
+            if isinstance(distance, (int, float)):
+                return (0, float(distance))
+
+            score = res.get("score")
+            if isinstance(score, (int, float)):
+                return (1, float(score))
+
+            return (2, float("inf"))
+
         seen: dict[str, dict] = {}  # key → best result
         for res in results:
             meta = res.get("metadata", {})
@@ -79,9 +97,7 @@ class ParentChildStrategy(IndexStrategy):
             if key not in seen:
                 seen[key] = res
             else:
-                existing_score = seen[key].get("score") or 0
-                current_score = res.get("score") or 0
-                if current_score > existing_score:
+                if _metric(res) < _metric(seen[key]):
                     seen[key] = res
 
         deduped = list(seen.values())

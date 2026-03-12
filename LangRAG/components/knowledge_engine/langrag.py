@@ -1,6 +1,9 @@
 import logging
 
-from langbot_plugin.api.definition.components.knowledge_engine import KnowledgeEngine, KnowledgeEngineCapability
+from langbot_plugin.api.definition.components.knowledge_engine import (
+    KnowledgeEngine,
+    KnowledgeEngineCapability,
+)
 from langbot_plugin.api.entities.builtin.rag import (
     IngestionContext,
     IngestionResult,
@@ -35,7 +38,10 @@ class LangRAG(KnowledgeEngine):
     @classmethod
     def get_capabilities(cls) -> list[str]:
         """Declare supported capabilities."""
-        return [KnowledgeEngineCapability.DOC_INGESTION, KnowledgeEngineCapability.DOC_PARSING]
+        return [
+            KnowledgeEngineCapability.DOC_INGESTION,
+            KnowledgeEngineCapability.DOC_PARSING,
+        ]
 
     # ========== Lifecycle Hooks ==========
 
@@ -82,11 +88,15 @@ class LangRAG(KnowledgeEngine):
         filename = context.file_object.metadata.filename
         collection_id = context.get_collection_id()
 
-        logger.info(f"Ingesting file: {filename} (doc={doc_id}) into collection: {collection_id}")
+        logger.info(
+            f"Ingesting file: {filename} (doc={doc_id}) into collection: {collection_id}"
+        )
 
         # 1. Get file content from Host
         try:
-            content_bytes = await self.plugin.get_knowledge_file_stream(context.file_object.storage_path)
+            content_bytes = await self.plugin.get_knowledge_file_stream(
+                context.file_object.storage_path
+            )
         except Exception as e:
             logger.error(f"Failed to get file content: {e}")
             return IngestionResult(
@@ -99,7 +109,9 @@ class LangRAG(KnowledgeEngine):
             # 2. Parse file content (prefer pre-parsed content from external Parser plugin)
             if context.parsed_content and context.parsed_content.text:
                 text_content = context.parsed_content.text
-                logger.info(f"Using pre-parsed content from external parser for {filename}")
+                logger.info(
+                    f"Using pre-parsed content from external parser for {filename}"
+                )
             else:
                 parser = FileParser()
                 text_content = await parser.parse(content_bytes, filename)
@@ -115,7 +127,9 @@ class LangRAG(KnowledgeEngine):
             # 3. Build chunks via strategy (async generator)
             index_type = context.creation_settings.get("index_type") or "chunk"
             strategy = get_strategy(index_type)
-            embedding_model_uuid = context.creation_settings.get("embedding_model_uuid", "")
+            embedding_model_uuid = context.creation_settings.get(
+                "embedding_model_uuid", ""
+            )
             logger.info(f"Strategy: {index_type} ({strategy.__class__.__name__})")
 
             # 4. Progressive ingest: consume generator → accumulate → embed+upsert
@@ -126,8 +140,15 @@ class LangRAG(KnowledgeEngine):
             pending_metas: list[dict] = []
             total_stored = 0
 
-            async for batch_texts, batch_ids, batch_metas in strategy.build_chunks_and_metadata(
-                text_content, doc_id, filename, context.creation_settings,
+            async for (
+                batch_texts,
+                batch_ids,
+                batch_metas,
+            ) in strategy.build_chunks_and_metadata(
+                text_content,
+                doc_id,
+                filename,
+                context.creation_settings,
                 plugin=self.plugin,
             ):
                 pending_texts.extend(batch_texts)
@@ -143,14 +164,21 @@ class LangRAG(KnowledgeEngine):
                     pending_ids = pending_ids[EMBEDDING_BATCH_SIZE:]
                     pending_metas = pending_metas[EMBEDDING_BATCH_SIZE:]
                     total_stored += await self._embed_and_upsert(
-                        collection_id, embedding_model_uuid, t, i, m,
+                        collection_id,
+                        embedding_model_uuid,
+                        t,
+                        i,
+                        m,
                     )
 
             # Flush remaining
             if pending_texts:
                 total_stored += await self._embed_and_upsert(
-                    collection_id, embedding_model_uuid,
-                    pending_texts, pending_ids, pending_metas,
+                    collection_id,
+                    embedding_model_uuid,
+                    pending_texts,
+                    pending_ids,
+                    pending_metas,
                 )
 
             if total_stored:
@@ -202,7 +230,9 @@ class LangRAG(KnowledgeEngine):
                 query_rewrite=query_rewrite,
                 rewrite_llm=rewrite_llm,
                 collection_id=collection_id,
-                embedding_model_uuid=context.creation_settings.get("embedding_model_uuid", ""),
+                embedding_model_uuid=context.creation_settings.get(
+                    "embedding_model_uuid", ""
+                ),
                 fetch_k=fetch_k,
                 filters=context.filters or None,
                 search_type=search_type,
@@ -211,8 +241,12 @@ class LangRAG(KnowledgeEngine):
             # Original logic: embed query → vector_search
             query_vector: list[float] = []
             if search_type != SearchType.FULL_TEXT:
-                embedding_model_uuid = context.creation_settings.get("embedding_model_uuid", "")
-                query_vectors = await self.plugin.invoke_embedding(embedding_model_uuid, [query])
+                embedding_model_uuid = context.creation_settings.get(
+                    "embedding_model_uuid", ""
+                )
+                query_vectors = await self.plugin.invoke_embedding(
+                    embedding_model_uuid, [query]
+                )
                 query_vector = query_vectors[0]
 
             results = await self.plugin.vector_search(
@@ -237,13 +271,19 @@ class LangRAG(KnowledgeEngine):
         for res in results:
             content_text = res.get("metadata", {}).get("text", "")
             raw_score = res.get("score")
-            distance = res.get("distance", raw_score)
+            distance = res.get("distance")
+            if distance is None and raw_score is not None:
+                # Compatibility with older hosts that incorrectly returned
+                # distance under the score field.
+                distance = raw_score
 
             doc_name = res.get("metadata", {}).get("document_name", "")
             entries.append(
                 RetrievalResultEntry(
                     id=res["id"],
-                    content=[{"type": "text", "text": content_text, "file_name": doc_name}],
+                    content=[
+                        {"type": "text", "text": content_text, "file_name": doc_name}
+                    ],
                     metadata=res.get("metadata", {}),
                     score=raw_score,
                     distance=distance,

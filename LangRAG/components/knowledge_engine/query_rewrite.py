@@ -41,10 +41,21 @@ def _extract_text(msg: Message) -> str:
     if isinstance(msg.content, str):
         return msg.content.strip()
     if isinstance(msg.content, list):
-        return "".join(
-            e.text for e in msg.content if e.type == "text"
-        ).strip()
+        return "".join(e.text for e in msg.content if e.type == "text").strip()
     return ""
+
+
+def _vector_result_sort_key(result: dict) -> tuple[int, float]:
+    """Prefer lower distance; fall back to legacy score-as-distance."""
+    distance = result.get("distance")
+    if isinstance(distance, (int, float)):
+        return (0, float(distance))
+
+    score = result.get("score")
+    if isinstance(score, (int, float)):
+        return (1, float(score))
+
+    return (2, float("inf"))
 
 
 async def retrieve_with_rewrite(
@@ -61,21 +72,41 @@ async def retrieve_with_rewrite(
     """Route to the appropriate rewrite strategy and return raw search results."""
     if query_rewrite == "hyde":
         return await _retrieve_hyde(
-            plugin, query, rewrite_llm, collection_id, embedding_model_uuid,
-            fetch_k, filters, search_type,
+            plugin,
+            query,
+            rewrite_llm,
+            collection_id,
+            embedding_model_uuid,
+            fetch_k,
+            filters,
+            search_type,
         )
     elif query_rewrite == "multi_query":
         return await _retrieve_multi_query(
-            plugin, query, rewrite_llm, collection_id, embedding_model_uuid,
-            fetch_k, filters, search_type,
+            plugin,
+            query,
+            rewrite_llm,
+            collection_id,
+            embedding_model_uuid,
+            fetch_k,
+            filters,
+            search_type,
         )
     elif query_rewrite == "step_back":
         return await _retrieve_step_back(
-            plugin, query, rewrite_llm, collection_id, embedding_model_uuid,
-            fetch_k, filters, search_type,
+            plugin,
+            query,
+            rewrite_llm,
+            collection_id,
+            embedding_model_uuid,
+            fetch_k,
+            filters,
+            search_type,
         )
     else:
-        logger.warning(f"Unknown query_rewrite strategy: {query_rewrite}, falling back to direct search")
+        logger.warning(
+            f"Unknown query_rewrite strategy: {query_rewrite}, falling back to direct search"
+        )
         query_vectors = await plugin.invoke_embedding(embedding_model_uuid, [query])
         return await plugin.vector_search(
             collection_id=collection_id,
@@ -88,8 +119,14 @@ async def retrieve_with_rewrite(
 
 
 async def _retrieve_hyde(
-    plugin, query, rewrite_llm, collection_id, embedding_model_uuid,
-    fetch_k, filters, search_type,
+    plugin,
+    query,
+    rewrite_llm,
+    collection_id,
+    embedding_model_uuid,
+    fetch_k,
+    filters,
+    search_type,
 ) -> list[dict]:
     """HyDE: generate a hypothetical document, embed it, and search with that vector."""
     logger.info(f"[HyDE] Generating hypothetical document for query: {query!r}")
@@ -99,7 +136,9 @@ async def _retrieve_hyde(
     logger.info(f"[HyDE] Hypothetical document:\n{hypothetical_doc}")
     logger.info("[HyDE] Embedding hypothetical document and searching...")
 
-    hyde_vectors = await plugin.invoke_embedding(embedding_model_uuid, [hypothetical_doc])
+    hyde_vectors = await plugin.invoke_embedding(
+        embedding_model_uuid, [hypothetical_doc]
+    )
     results = await plugin.vector_search(
         collection_id=collection_id,
         query_vector=hyde_vectors[0],
@@ -113,11 +152,19 @@ async def _retrieve_hyde(
 
 
 async def _retrieve_multi_query(
-    plugin, query, rewrite_llm, collection_id, embedding_model_uuid,
-    fetch_k, filters, search_type,
+    plugin,
+    query,
+    rewrite_llm,
+    collection_id,
+    embedding_model_uuid,
+    fetch_k,
+    filters,
+    search_type,
 ) -> list[dict]:
     """Multi-Query: generate N query variants, search with each, merge and deduplicate."""
-    logger.info(f"[Multi-Query] Generating {MULTI_QUERY_COUNT} sub-queries for: {query!r}")
+    logger.info(
+        f"[Multi-Query] Generating {MULTI_QUERY_COUNT} sub-queries for: {query!r}"
+    )
     prompt = MULTI_QUERY_PROMPT.format(query=query, n=MULTI_QUERY_COUNT)
     resp = await plugin.invoke_llm(rewrite_llm, [Message(role="user", content=prompt)])
     raw_text = _extract_text(resp)
@@ -125,11 +172,13 @@ async def _retrieve_multi_query(
     sub_queries = sub_queries[:MULTI_QUERY_COUNT]
     logger.info("[Multi-Query] Generated sub-queries:")
     for i, sq in enumerate(sub_queries):
-        logger.info(f"  [{i+1}] {sq}")
+        logger.info(f"  [{i + 1}] {sq}")
 
     # Embed original query + sub-queries
     all_queries = [query] + sub_queries
-    logger.info(f"[Multi-Query] Embedding {len(all_queries)} queries (1 original + {len(sub_queries)} generated)")
+    logger.info(
+        f"[Multi-Query] Embedding {len(all_queries)} queries (1 original + {len(sub_queries)} generated)"
+    )
     all_vectors = await plugin.invoke_embedding(embedding_model_uuid, all_queries)
 
     # Search with each vector and merge results
@@ -145,23 +194,34 @@ async def _retrieve_multi_query(
             query_text=query,
         )
         new_count = sum(1 for r in results if r["id"] not in seen_ids)
-        logger.info(f"[Multi-Query] Query [{i}] returned {len(results)} results ({new_count} new)")
+        logger.info(
+            f"[Multi-Query] Query [{i}] returned {len(results)} results ({new_count} new)"
+        )
         for r in results:
             rid = r["id"]
             if rid not in seen_ids:
                 seen_ids.add(rid)
                 merged.append(r)
 
-    # Sort by score descending and truncate to fetch_k
-    merged.sort(key=lambda r: r.get("score", 0), reverse=True)
+    # Prefer lower distance. Older hosts incorrectly exposed distance in score,
+    # so score is only used as a compatibility fallback here.
+    merged.sort(key=_vector_result_sort_key)
     merged = merged[:fetch_k]
-    logger.info(f"[Multi-Query] Merged: {len(seen_ids)} unique results, returning {len(merged)}")
+    logger.info(
+        f"[Multi-Query] Merged: {len(seen_ids)} unique results, returning {len(merged)}"
+    )
     return merged
 
 
 async def _retrieve_step_back(
-    plugin, query, rewrite_llm, collection_id, embedding_model_uuid,
-    fetch_k, filters, search_type,
+    plugin,
+    query,
+    rewrite_llm,
+    collection_id,
+    embedding_model_uuid,
+    fetch_k,
+    filters,
+    search_type,
 ) -> list[dict]:
     """Step-Back: generate a broader question, search with both original and abstract queries."""
     logger.info(f"[Step-Back] Generating abstract question for: {query!r}")
@@ -173,7 +233,8 @@ async def _retrieve_step_back(
     # Embed both original and abstract queries
     logger.info("[Step-Back] Embedding original + abstract queries and searching...")
     both_vectors = await plugin.invoke_embedding(
-        embedding_model_uuid, [query, abstract_query],
+        embedding_model_uuid,
+        [query, abstract_query],
     )
 
     # Search with both vectors and merge
@@ -190,14 +251,18 @@ async def _retrieve_step_back(
             query_text=query,
         )
         new_count = sum(1 for r in results if r["id"] not in seen_ids)
-        logger.info(f"[Step-Back] {label} query returned {len(results)} results ({new_count} new)")
+        logger.info(
+            f"[Step-Back] {label} query returned {len(results)} results ({new_count} new)"
+        )
         for r in results:
             rid = r["id"]
             if rid not in seen_ids:
                 seen_ids.add(rid)
                 merged.append(r)
 
-    merged.sort(key=lambda r: r.get("score", 0), reverse=True)
+    merged.sort(key=_vector_result_sort_key)
     merged = merged[:fetch_k]
-    logger.info(f"[Step-Back] Merged: {len(seen_ids)} unique results, returning {len(merged)}")
+    logger.info(
+        f"[Step-Back] Merged: {len(seen_ids)} unique results, returning {len(merged)}"
+    )
     return merged

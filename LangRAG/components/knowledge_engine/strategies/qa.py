@@ -81,9 +81,7 @@ def _extract_text(msg: Message) -> str:
     if isinstance(msg.content, str):
         return msg.content.strip()
     if isinstance(msg.content, list):
-        return "".join(
-            e.text for e in msg.content if e.type == "text"
-        ).strip()
+        return "".join(e.text for e in msg.content if e.type == "text").strip()
     return ""
 
 
@@ -109,14 +107,14 @@ class QAStrategy(IndexStrategy):
         plugin=None,
     ) -> AsyncGenerator[tuple[list[str], list[str], list[dict]], None]:
         if plugin is None:
-            raise RuntimeError(
-                "QAStrategy requires a plugin reference for LLM calls"
-            )
+            raise RuntimeError("QAStrategy requires a plugin reference for LLM calls")
 
         chunk_size = creation_settings.get("chunk_size") or DEFAULT_CHUNK_SIZE
         overlap = creation_settings.get("overlap") or DEFAULT_CHUNK_OVERLAP
         qa_llm_uuid = creation_settings.get("qa_llm_model_uuid", "")
-        n_questions = creation_settings.get("questions_per_chunk") or DEFAULT_QUESTIONS_PER_CHUNK
+        n_questions = (
+            creation_settings.get("questions_per_chunk") or DEFAULT_QUESTIONS_PER_CHUNK
+        )
 
         if not qa_llm_uuid:
             raise ValueError(
@@ -153,7 +151,7 @@ class QAStrategy(IndexStrategy):
                 continue
 
             logger.info(
-                f"[QA] Chunk {chunk_idx}/{len(chunks)-1}: "
+                f"[QA] Chunk {chunk_idx}/{len(chunks) - 1}: "
                 f"generated {len(qa_pairs)} Q&A pairs"
             )
 
@@ -165,29 +163,40 @@ class QAStrategy(IndexStrategy):
                 vec_id = f"{doc_id}_{chunk_idx}_qa{qa_idx}"
                 questions.append(question)
                 ids.append(vec_id)
-                metadatas.append({
-                    "file_id": doc_id,
-                    "document_id": doc_id,
-                    "document_name": filename,
-                    "chunk_index": chunk_idx,
-                    "qa_index": qa_idx,
-                    "question": question,
-                    "answer": answer,
-                    "text": chunk,  # return full chunk as retrieval context
-                    "source_chunk": chunk,
-                    "index_type": "qa",
-                })
+                metadatas.append(
+                    {
+                        "file_id": doc_id,
+                        "document_id": doc_id,
+                        "document_name": filename,
+                        "chunk_index": chunk_idx,
+                        "qa_index": qa_idx,
+                        "question": question,
+                        "answer": answer,
+                        "text": chunk,  # return full chunk as retrieval context
+                        "source_chunk": chunk,
+                        "index_type": "qa",
+                    }
+                )
 
             total_qa += len(questions)
             yield questions, ids, metadatas
 
-        logger.info(
-            f"[QA] Total: {total_qa} Q&A pairs from "
-            f"{len(chunks)} chunks"
-        )
+        logger.info(f"[QA] Total: {total_qa} Q&A pairs from {len(chunks)} chunks")
 
     def postprocess_results(self, results: list[dict], top_k: int) -> list[dict]:
         """Deduplicate by source chunk, keeping the highest-scoring QA per chunk."""
+
+        def _metric(res: dict) -> tuple[int, float]:
+            distance = res.get("distance")
+            if isinstance(distance, (int, float)):
+                return (0, float(distance))
+
+            score = res.get("score")
+            if isinstance(score, (int, float)):
+                return (1, float(score))
+
+            return (2, float("inf"))
+
         seen: dict[str, dict] = {}
         for res in results:
             meta = res.get("metadata", {})
@@ -198,9 +207,7 @@ class QAStrategy(IndexStrategy):
             if key not in seen:
                 seen[key] = res
             else:
-                existing_score = seen[key].get("score") or 0
-                current_score = res.get("score") or 0
-                if current_score > existing_score:
+                if _metric(res) < _metric(seen[key]):
                     seen[key] = res
 
         return list(seen.values())[:top_k]
