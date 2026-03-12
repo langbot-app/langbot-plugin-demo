@@ -20,13 +20,18 @@ spec:
         description: 'Action to perform: "list" to list available knowledge bases, "query" to search a specific knowledge base.'
       kb_id:
         type: string
-        description: 'Knowledge base UUID to query. Required when action is "query". Obtain from the "list" action result.'
+        description: 'Single knowledge base UUID to query. Optional when action is "query" if kb_ids is provided.'
+      kb_ids:
+        type: array
+        items:
+          type: string
+        description: 'Multiple knowledge base UUIDs to query in parallel. Optional when action is "query" if kb_id is provided.'
       query_text:
         type: string
         description: 'Search query text. Required when action is "query". Construct a clear, specific query for best retrieval results.'
       top_k:
         type: integer
-        description: 'Number of results to return. Optional, default is 5. Only used when action is "query".'
+        description: 'Maximum number of merged results to return. Optional, default is 5. Only used when action is "query".'
     required:
       - action
   llm_prompt: |
@@ -35,12 +40,14 @@ spec:
     Usage:
     1. First call with action="list" to see available knowledge bases and their descriptions.
     2. Choose the most relevant knowledge base based on its name and description.
-    3. Call with action="query", providing kb_id (from step 1), and a clear query_text.
-    4. If results are insufficient, try rephrasing the query or searching a different knowledge base.
+    3. Call with action="query", providing either kb_id for one knowledge base, or kb_ids for multiple knowledge bases queried in parallel.
+    4. Always provide a clear query_text. If results are insufficient, try rephrasing the query or searching different knowledge bases.
 
     Tips:
     - Always list knowledge bases first to know what's available.
     - Craft specific, targeted queries for better retrieval results.
+    - Use kb_id when you are confident about the right knowledge base.
+    - Use kb_ids when the answer may span multiple knowledge bases and you want one merged result set.
     - You can call this tool multiple times with different queries or knowledge bases.
 execution:
   python:
