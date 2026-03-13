@@ -333,6 +333,53 @@ class MemoryStore:
             self._speaker_profile_key(scope_key, sender_id), _default_profile()
         )
 
+    async def export_all_profiles(self) -> list[dict[str, Any]]:
+        """Export all L1 profiles from plugin storage.
+
+        Returns a list of dicts, each containing type, scope_key,
+        optional sender_id, and profile data.
+        """
+        keys: list[str] = await self.plugin.get_plugin_storage_keys()
+        profiles: list[dict[str, Any]] = []
+
+        for key in keys:
+            if key.startswith("ps:"):
+                scope_key = key[3:]  # strip "ps:" prefix
+                profile = await self._read_json(key)
+                if profile and self.has_profile_data(profile):
+                    entry: dict[str, Any] = {
+                        "type": "session",
+                        "scope_key": scope_key,
+                        "profile": {
+                            f: profile.get(f, _default_profile()[f])
+                            for f in self._PROFILE_FIELDS
+                        },
+                    }
+                    profiles.append(entry)
+
+            elif key.startswith("pp:"):
+                # pp:<scope_key>:<sender_id>
+                rest = key[3:]  # strip "pp:" prefix
+                sep_idx = rest.rfind(":")
+                if sep_idx == -1:
+                    continue
+                scope_key = rest[:sep_idx]
+                sender_id = rest[sep_idx + 1 :]
+                profile = await self._read_json(key)
+                if profile and self.has_profile_data(profile):
+                    entry = {
+                        "type": "speaker",
+                        "scope_key": scope_key,
+                        "sender_id": sender_id,
+                        "profile": {
+                            f: profile.get(f, _default_profile()[f])
+                            for f in self._PROFILE_FIELDS
+                        },
+                    }
+                    profiles.append(entry)
+
+        return profiles
+
     # ======================== L2: episodes (ChromaDB vector) ========================
 
     async def add_episode(
@@ -453,6 +500,10 @@ class MemoryStore:
             # importance is stored as a string ("1"-"5") in vector DB metadata;
             # string comparison works correctly for single-digit values in this range.
             filters["importance"] = {"$gte": str(importance_min)}
+
+        # ChromaDB requires $and wrapper when there are multiple filter conditions
+        if len(filters) > 1:
+            filters = {"$and": [{k: v} for k, v in filters.items()]}
 
         results = await self.plugin.vector_search(
             collection_id=collection_id,

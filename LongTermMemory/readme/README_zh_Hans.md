@@ -13,6 +13,7 @@ LangBot 长期记忆插件，采用双层记忆设计：
 - 通过 EventListener 自动注入画像和当前说话人身份
 - 通过 KnowledgeEngine 在模型调用前检索相关情景记忆
 - 提供 `!memory` 命令用于查看和调试记忆状态
+- 提供 `!memory export` 命令，将所有 L1 画像导出为 JSON
 
 ## 设计说明
 
@@ -60,7 +61,13 @@ LangBot 长期记忆插件，采用双层记忆设计：
    - `remember` 记录事件、计划、情景事实
    - `recall_memory` 在自动召回不足时主动检索记忆
    - `update_profile` 记录稳定偏好和画像信息
-5. 使用 `!memory`、`!memory profile`、`!memory search <query>` 查看记忆状态。
+5. 使用 `!memory`、`!memory profile`、`!memory search <query>`、`!memory export` 查看记忆状态。
+
+## 导入与导出
+
+- **导出（L1 画像）：** 使用 `!memory export` 命令导出所有 session 画像和 speaker 画像，格式为 JSON，可复制保存用于备份或迁移。
+- **导入（L2 情景记忆）：** 通过 LangBot 知识库前端界面上传 JSON 文件，批量导入情景记忆。
+- **L2 情景记忆暂不支持导出**，因为 SDK 未提供向量库遍历接口，仅 L1 画像支持导出。
 
 ## 组件
 

@@ -11,32 +11,46 @@ metadata:
 
 spec:
   creation_schema:
-    type: object
-    properties:
-      isolation:
-        type: string
-        enum:
-          - session
-          - bot
-        description: 'Memory isolation mode. session: each group/chat has independent memory. bot: all sessions share memory.'
-        default: session
-      embedding_model_uuid:
-        type: string
-        description: UUID of the embedding model to use for semantic search.
-      max_results:
-        type: integer
-        description: Maximum number of memories returned per retrieval.
-        default: 5
-    required:
-      - embedding_model_uuid
+    - name: embedding_model_uuid
+      label:
+        en_US: Embedding Model
+        zh_Hans: 嵌入模型
+      description:
+        en_US: Embedding model used for semantic search.
+        zh_Hans: 用于语义检索的嵌入模型。
+      type: embedding-model-selector
+      required: true
+      default: ''
+
+    - name: isolation
+      label:
+        en_US: Isolation Mode
+        zh_Hans: 隔离模式
+      description:
+        en_US: 'session: each group/chat has independent memory. bot: all sessions share memory.'
+        zh_Hans: 'session：每个群/会话独立记忆。bot：所有会话共享记忆。'
+      type: select
+      options:
+        - name: session
+          label:
+            en_US: Session
+            zh_Hans: 会话隔离
+        - name: bot
+          label:
+            en_US: Bot
+            zh_Hans: 全局共享
+      default: session
 
   retrieval_schema:
-    type: object
-    properties:
-      top_k:
-        type: integer
-        description: Number of results to return.
-        default: 5
+    - name: top_k
+      label:
+        en_US: Top K
+        zh_Hans: 返回条数
+      description:
+        en_US: Number of results to return.
+        zh_Hans: 检索返回的结果数量。
+      type: integer
+      default: 5
 
 execution:
   python:

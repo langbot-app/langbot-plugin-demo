@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
+import time
 from typing import AsyncGenerator, NamedTuple
 
 from langbot_plugin.api.definition.components.command.command import Command
@@ -213,3 +215,33 @@ class Memory(Command):
                 lines.append(f"  {ts} (imp:{imp}){tag_str} {ep['content']}")
 
             yield CommandReturn(text="\n".join(lines))
+
+        @self.subcommand(
+            name="export",
+            help="Export all L1 profiles as JSON",
+            usage="!memory export",
+            aliases=["e"],
+        )
+        async def export_cmd(
+            self: Memory,
+            context: ExecuteContext,
+        ) -> AsyncGenerator[CommandReturn, None]:
+            store = self.plugin.memory_store
+
+            profiles = await store.export_all_profiles()
+
+            if not profiles:
+                yield CommandReturn(text="[Memory] No profiles to export.")
+                return
+
+            export_data = {
+                "version": 1,
+                "exported_at": time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+                ),
+                "profiles": profiles,
+            }
+
+            yield CommandReturn(
+                text=json.dumps(export_data, ensure_ascii=False, indent=2)
+            )
