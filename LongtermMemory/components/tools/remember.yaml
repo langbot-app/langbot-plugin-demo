@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: Tool
+metadata:
+  name: remember
+  label:
+    en_US: Remember
+    zh_Hans: 记住
+  description:
+    en_US: Remember an event, plan, or situational fact for future conversations.
+    zh_Hans: 记住一个事件、计划或情境信息，供未来对话使用。
+
+spec:
+  parameters:
+    type: object
+    properties:
+      content:
+        type: string
+        description: The information to remember. Be specific and factual.
+      tags:
+        type: array
+        items:
+          type: string
+        description: Short category tags for this memory (e.g. "travel", "work", "schedule").
+      importance:
+        type: integer
+        description: How important this memory is, from 1 (low) to 5 (critical). Default 2.
+        minimum: 1
+        maximum: 5
+    required:
+      - content
+
+  llm_prompt: |
+    Store an episodic memory — events, plans, experiences, or situational facts.
+    Call this tool when the user mentions something that may be relevant later, such as:
+    - Events and experiences ("I just got back from Tokyo", "had a fight with my boss")
+    - Plans and schedules ("I'm traveling to Paris next month", "deadline is Friday")
+    - Project context ("working on a migration from MySQL to PostgreSQL")
+    - Situational facts ("my cat is sick", "just moved to a new apartment")
+
+    IMPORTANT: Always include the speaker's name or identifier in the content.
+    For example, write "Alice is traveling to Paris next month" instead of "traveling to Paris next month".
+    This ensures memories are correctly attributed when multiple people share the same conversation.
+
+    Do NOT use this for stable identity information — use "update_profile" instead:
+    - Name, job title, personality traits → update_profile
+    - Communication preferences → update_profile
+
+    Parameters:
+    - content (required): What to remember. Be concise and factual. Always attribute to the speaker.
+    - tags (optional): Category tags like ["travel", "work"].
+    - importance (optional): 1-5 scale, default 2. Use 4-5 for critical facts.
+
+execution:
+  python:
+    path: remember.py
+    attr: Remember

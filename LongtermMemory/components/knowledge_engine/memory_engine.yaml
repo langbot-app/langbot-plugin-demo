@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: KnowledgeEngine
+metadata:
+  name: long_term_memory
+  label:
+    en_US: LongTermMemory
+    zh_Hans: 长期记忆
+  description:
+    en_US: 'Long-term memory for LangBot. Configure embedding model and isolation mode here. Supports memory import via JSON files.'
+    zh_Hans: 'LangBot 长期记忆。在此配置嵌入模型和隔离模式，支持通过 JSON 文件导入记忆。'
+
+spec:
+  creation_schema:
+    type: object
+    properties:
+      isolation:
+        type: string
+        enum:
+          - session
+          - bot
+        description: 'Memory isolation mode. session: each group/chat has independent memory. bot: all sessions share memory.'
+        default: session
+      embedding_model_uuid:
+        type: string
+        description: UUID of the embedding model to use for semantic search.
+      max_results:
+        type: integer
+        description: Maximum number of memories returned per retrieval.
+        default: 5
+    required:
+      - embedding_model_uuid
+
+  retrieval_schema:
+    type: object
+    properties:
+      top_k:
+        type: integer
+        description: Number of results to return.
+        default: 5
+
+execution:
+  python:
+    path: memory_engine.py
+    attr: LongTermMemoryEngine
