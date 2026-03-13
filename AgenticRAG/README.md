@@ -57,3 +57,25 @@ If one KB query fails while others succeed, the tool returns a JSON object with 
 2. Agent selects one KB or a small set of KBs based on name and description.
 3. Agent submits a focused retrieval query.
 4. Agent uses the returned chunks to answer or continue tool use.
+
+## Logging
+
+The plugin now emits logs during tool execution so you can observe how the LLM is using AgenticRAG in practice.
+
+You will see logs for:
+
+- tool call start, including `query_id`, `action`, and parameter keys
+- KB listing start/end and how many KBs are visible
+- retrieval start, including selected KBs, `top_k`, and a shortened `query_text` preview
+- per-KB retrieval start/success/failure
+- final retrieval summary, including merged result count, failed KB count, and returned result count
+
+Typical log messages look like:
+
+```text
+[AgenticRAG] tool call started: query_id=123 action=query params_keys=['action', 'kb_id', 'query_text', 'top_k']
+[AgenticRAG] retrieval requested: query_id=123 kb_ids=['kb-1'] kb_count=1 top_k=5 query='what is the refund policy'
+[AgenticRAG] querying knowledge base: query_id=123 kb_id=kb-1 top_k=5
+[AgenticRAG] knowledge base query succeeded: query_id=123 kb_id=kb-1 result_count=4
+[AgenticRAG] retrieval completed: query_id=123 merged_results=4 failed_kbs=0
+```

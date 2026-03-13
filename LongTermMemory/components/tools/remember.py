@@ -11,6 +11,12 @@ logger = logging.getLogger(__name__)
 
 
 class Remember(Tool):
+    @staticmethod
+    def _preview_text(value: str, max_len: int = 120) -> str:
+        text = value.strip().replace("\n", " ")
+        if len(text) <= max_len:
+            return text
+        return f"{text[:max_len]}..."
 
     async def call(
         self,
@@ -22,6 +28,11 @@ class Remember(Tool):
         api = QueryBasedAPIProxy(
             query_id=query_id,
             plugin_runtime_handler=self.plugin.plugin_runtime_handler,
+        )
+        logger.info(
+            "[LongTermMemory] remember called: query_id=%s params_keys=%s",
+            query_id,
+            sorted(params.keys()),
         )
         bot_uuid = await api.get_bot_uuid()
         query_vars = await api.get_query_vars()
@@ -48,6 +59,16 @@ class Remember(Tool):
         importance = params.get("importance", 2)
         sender_id = str(query_vars.get("sender_id", "") or "")
         sender_name = str(query_vars.get("sender_name", "") or "")
+        logger.info(
+            "[LongTermMemory] remember storing episode: query_id=%s kb_id=%s user_key=%s sender_id=%s importance=%s tags=%s content=%r",
+            query_id,
+            kb_id,
+            user_key,
+            sender_id,
+            importance,
+            tags,
+            self._preview_text(str(content)),
+        )
 
         episode = await store.add_episode(
             collection_id=kb_id,
@@ -62,10 +83,11 @@ class Remember(Tool):
         )
 
         logger.info(
-            "Remembered [%s] for %s: %s",
+            "[LongTermMemory] remember stored: query_id=%s episode_id=%s user_key=%s content=%r",
+            query_id,
             episode["id"],
             user_key,
-            content[:80],
+            self._preview_text(str(content), 80),
         )
 
         return f"Remembered: {content}"

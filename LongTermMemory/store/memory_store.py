@@ -45,6 +45,13 @@ class MemoryStore:
         self._profile_cache: dict[str, tuple[float, dict[str, Any]]] = {}
         self._PROFILE_CACHE_TTL = 30  # seconds
 
+    @staticmethod
+    def _preview_text(value: str, max_len: int = 120) -> str:
+        text = value.strip().replace("\n", " ")
+        if len(text) <= max_len:
+            return text
+        return f"{text[:max_len]}..."
+
     # ======================== common helpers ========================
 
     @staticmethod
@@ -133,6 +140,13 @@ class MemoryStore:
             bot_uuid, session.launcher_type.value, session.launcher_id
         )
         user_key = self.get_user_key(session_key, isolation, bot_uuid)
+        logger.info(
+            "[LongTermMemory] resolved user context: session_key=%s user_key=%s kb_id=%s isolation=%s",
+            session_key,
+            user_key,
+            kb_id,
+            isolation,
+        )
         return session_key, user_key, kb_id, isolation, config
 
     async def resolve_user_key(self, session: Any, bot_uuid: str = "") -> str:
@@ -339,6 +353,15 @@ class MemoryStore:
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         importance = max(1, min(5, importance))
         tags = tags or []
+        logger.info(
+            "[LongTermMemory] add_episode: collection_id=%s user_key=%s sender_id=%s importance=%s tags=%s content=%r",
+            collection_id,
+            user_key,
+            sender_id,
+            importance,
+            tags,
+            self._preview_text(content),
+        )
 
         metadata = {
             "content": content,
@@ -360,6 +383,12 @@ class MemoryStore:
             ids=[episode_id],
             metadata=[metadata],
             documents=[content],
+        )
+        logger.info(
+            "[LongTermMemory] add_episode stored: collection_id=%s episode_id=%s timestamp=%s",
+            collection_id,
+            episode_id,
+            timestamp,
         )
 
         return {
@@ -387,6 +416,19 @@ class MemoryStore:
         """Search episodic memories via vector similarity."""
         if not query.strip():
             return []
+        logger.info(
+            "[LongTermMemory] search_episodes: collection_id=%s user_key=%s sender_id=%s sender_name=%s top_k=%s source=%s importance_min=%s time_after=%s time_before=%s query=%r",
+            collection_id,
+            user_key,
+            sender_id,
+            sender_name,
+            top_k,
+            source,
+            importance_min,
+            time_after,
+            time_before,
+            self._preview_text(query),
+        )
 
         vectors = await self.plugin.invoke_embedding(embedding_model_uuid, [query])
         query_vector = vectors[0]
@@ -417,6 +459,12 @@ class MemoryStore:
             query_vector=query_vector,
             top_k=top_k,
             filters=filters if filters else None,
+        )
+        logger.info(
+            "[LongTermMemory] search_episodes completed: collection_id=%s result_count=%s filters=%s",
+            collection_id,
+            len(results),
+            filters if filters else None,
         )
 
         episodes = []

@@ -2,14 +2,23 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any
 
 from langbot_plugin.api.definition.components.tool.tool import Tool
 from langbot_plugin.api.entities.builtin.provider import session as provider_session
 from langbot_plugin.api.proxies.query_based_api import QueryBasedAPIProxy
 
+logger = logging.getLogger(__name__)
+
 
 class QueryKnowledge(Tool):
+    @staticmethod
+    def _preview_text(value: str, max_len: int = 120) -> str:
+        text = value.strip().replace("\n", " ")
+        if len(text) <= max_len:
+            return text
+        return f"{text[:max_len]}..."
 
     @staticmethod
     def _normalize_kb_ids(params: dict[str, Any]) -> tuple[list[str] | None, str | None]:
@@ -78,9 +87,21 @@ class QueryKnowledge(Tool):
         )
 
         action = params.get("action", "list")
+        logger.info(
+            "[AgenticRAG] tool call started: query_id=%s action=%s params_keys=%s",
+            query_id,
+            action,
+            sorted(params.keys()),
+        )
 
         if action == "list":
+            logger.info("[AgenticRAG] listing knowledge bases: query_id=%s", query_id)
             knowledge_bases = await api.list_pipeline_knowledge_bases()
+            logger.info(
+                "[AgenticRAG] knowledge base list loaded: query_id=%s kb_count=%s",
+                query_id,
+                len(knowledge_bases),
+            )
             if not knowledge_bases:
                 return "No knowledge bases are configured for the current pipeline."
             return json.dumps(knowledge_bases, ensure_ascii=False)
@@ -88,14 +109,29 @@ class QueryKnowledge(Tool):
         elif action == "query":
             query_text = params.get("query_text")
             if not isinstance(query_text, str) or not query_text.strip():
+                logger.warning(
+                    "[AgenticRAG] invalid query_text: query_id=%s query_text=%r",
+                    query_id,
+                    query_text,
+                )
                 return "query_text must be a non-empty string."
 
             top_k = params.get("top_k", 5)
             if not isinstance(top_k, int) or top_k <= 0:
+                logger.warning(
+                    "[AgenticRAG] invalid top_k: query_id=%s top_k=%r",
+                    query_id,
+                    top_k,
+                )
                 return "top_k must be a positive integer."
 
             kb_ids, kb_error = self._normalize_kb_ids(params)
             if kb_error:
+                logger.warning(
+                    "[AgenticRAG] invalid kb params: query_id=%s error=%s",
+                    query_id,
+                    kb_error,
+                )
                 return kb_error
 
             # Keep the agent-facing tool surface minimal here. Although the
@@ -103,13 +139,33 @@ class QueryKnowledge(Tool):
             # engines do not expose a consistent, query-time filter schema to
             # the agent, so passing raw filters would be unreliable.
             query_text = query_text.strip()
+            logger.info(
+                "[AgenticRAG] retrieval requested: query_id=%s kb_ids=%s kb_count=%s top_k=%s query=%r",
+                query_id,
+                kb_ids,
+                len(kb_ids),
+                top_k,
+                self._preview_text(query_text),
+            )
 
             async def _query_single_kb(target_kb_id: str) -> dict[str, Any]:
                 try:
+                    logger.info(
+                        "[AgenticRAG] querying knowledge base: query_id=%s kb_id=%s top_k=%s",
+                        query_id,
+                        target_kb_id,
+                        top_k,
+                    )
                     kb_results = await api.retrieve_knowledge(
                         kb_id=target_kb_id,
                         query_text=query_text,
                         top_k=top_k,
+                    )
+                    logger.info(
+                        "[AgenticRAG] knowledge base query succeeded: query_id=%s kb_id=%s result_count=%s",
+                        query_id,
+                        target_kb_id,
+                        len(kb_results),
                     )
                     return {
                         "kb_id": target_kb_id,
@@ -121,6 +177,12 @@ class QueryKnowledge(Tool):
                         "error": None,
                     }
                 except Exception as exc:
+                    logger.exception(
+                        "[AgenticRAG] knowledge base query failed: query_id=%s kb_id=%s error=%s",
+                        query_id,
+                        target_kb_id,
+                        exc,
+                    )
                     return {
                         "kb_id": target_kb_id,
                         "results": [],
@@ -138,14 +200,32 @@ class QueryKnowledge(Tool):
                 for outcome in retrieval_outcomes
                 if outcome["error"] is not None
             ]
+            logger.info(
+                "[AgenticRAG] retrieval completed: query_id=%s merged_results=%s failed_kbs=%s",
+                query_id,
+                len(merged_results),
+                len(failed_kbs),
+            )
 
             if not merged_results:
                 if failed_kbs:
+                    logger.info(
+                        "[AgenticRAG] returning failure summary: query_id=%s failed_kbs=%s",
+                        query_id,
+                        failed_kbs,
+                    )
                     return json.dumps({"results": [], "failed_kbs": failed_kbs}, ensure_ascii=False)
+                logger.info("[AgenticRAG] no relevant documents found: query_id=%s", query_id)
                 return "No relevant documents found."
 
             merged_results.sort(key=self._sort_key)
             truncated_results = merged_results[:top_k]
+            logger.info(
+                "[AgenticRAG] returning retrieval response: query_id=%s returned_results=%s truncated=%s",
+                query_id,
+                len(truncated_results),
+                len(merged_results) > len(truncated_results),
+            )
             if failed_kbs:
                 return json.dumps(
                     {"results": truncated_results, "failed_kbs": failed_kbs},
@@ -154,4 +234,9 @@ class QueryKnowledge(Tool):
             return json.dumps(truncated_results, ensure_ascii=False)
 
         else:
+            logger.warning(
+                "[AgenticRAG] unknown action: query_id=%s action=%r",
+                query_id,
+                action,
+            )
             return f"Unknown action: {action}. Use 'list' or 'query'."

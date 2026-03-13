@@ -30,6 +30,11 @@ class MemoryInjector(EventListener):
     async def _inject_profile(self, event_ctx: context.EventContext) -> None:
         store = self.plugin.memory_store
         session_name: str = event_ctx.event.session_name
+        logger.info(
+            "[LongTermMemory] memory injection started: query_id=%s session_name=%s",
+            event_ctx.query_id,
+            session_name,
+        )
         api = QueryBasedAPIProxy(
             query_id=event_ctx.query_id,
             plugin_runtime_handler=self.plugin.plugin_runtime_handler,
@@ -37,11 +42,20 @@ class MemoryInjector(EventListener):
 
         kb = await store.get_kb_config()
         if not kb:
+            logger.info(
+                "[LongTermMemory] memory injection skipped: query_id=%s reason=no_kb_config",
+                event_ctx.query_id,
+            )
             return
 
         kb_id, config = kb
         pipeline_kbs = await api.list_pipeline_knowledge_bases()
         if not any(kb_entry.get("uuid") == kb_id for kb_entry in pipeline_kbs):
+            logger.info(
+                "[LongTermMemory] memory injection skipped: query_id=%s kb_id=%s reason=kb_not_in_pipeline",
+                event_ctx.query_id,
+                kb_id,
+            )
             return
 
         isolation = config.get("isolation", "session")
@@ -78,9 +92,24 @@ class MemoryInjector(EventListener):
             blocks.append(f"## Current Speaker\n- ID: {sender_id}")
 
         if not blocks:
+            logger.info(
+                "[LongTermMemory] memory injection skipped: query_id=%s scope_key=%s sender_id=%s reason=no_profile_blocks",
+                event_ctx.query_id,
+                scope_key,
+                sender_id,
+            )
             return
 
         injection = "# Long-term Memory\n\n" + "\n\n".join(blocks)
+        logger.info(
+            "[LongTermMemory] memory injection ready: query_id=%s kb_id=%s scope_key=%s sender_id=%s block_count=%s prompt_chars=%s",
+            event_ctx.query_id,
+            kb_id,
+            scope_key,
+            sender_id,
+            len(blocks),
+            len(injection),
+        )
 
         event_ctx.event.default_prompt.append(
             Message(role="system", content=injection)

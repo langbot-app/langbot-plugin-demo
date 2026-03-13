@@ -1,14 +1,23 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from langbot_plugin.api.definition.components.tool.tool import Tool
 from langbot_plugin.api.entities.builtin.provider import session as provider_session
 from langbot_plugin.api.proxies.query_based_api import QueryBasedAPIProxy
 
+logger = logging.getLogger(__name__)
+
 
 class RecallMemory(Tool):
+    @staticmethod
+    def _preview_text(value: str, max_len: int = 120) -> str:
+        text = value.strip().replace("\n", " ")
+        if len(text) <= max_len:
+            return text
+        return f"{text[:max_len]}..."
 
     async def call(
         self,
@@ -20,6 +29,11 @@ class RecallMemory(Tool):
         api = QueryBasedAPIProxy(
             query_id=query_id,
             plugin_runtime_handler=self.plugin.plugin_runtime_handler,
+        )
+        logger.info(
+            "[LongTermMemory] recall_memory called: query_id=%s params_keys=%s",
+            query_id,
+            sorted(params.keys()),
         )
         bot_uuid = await api.get_bot_uuid()
         _, user_key, kb_id, _isolation, config = await store.resolve_user_context(
@@ -81,6 +95,20 @@ class RecallMemory(Tool):
         ):
             return "Error: importance_min must be an integer between 1 and 5."
 
+        logger.info(
+            "[LongTermMemory] recall_memory searching: query_id=%s kb_id=%s user_key=%s top_k=%s speaker_id=%s speaker_name=%s source=%s importance_min=%s time_after=%s time_before=%s query=%r",
+            query_id,
+            kb_id,
+            user_key,
+            top_k,
+            speaker_id.strip(),
+            speaker_name.strip(),
+            source.strip(),
+            importance_min,
+            time_after.strip(),
+            time_before.strip(),
+            self._preview_text(query),
+        )
         episodes = await store.search_episodes(
             collection_id=kb_id,
             embedding_model_uuid=embedding_model_uuid,
@@ -96,6 +124,17 @@ class RecallMemory(Tool):
         )
 
         if not episodes:
+            logger.info(
+                "[LongTermMemory] recall_memory no results: query_id=%s kb_id=%s",
+                query_id,
+                kb_id,
+            )
             return "No relevant memories found."
 
+        logger.info(
+            "[LongTermMemory] recall_memory completed: query_id=%s kb_id=%s result_count=%s",
+            query_id,
+            kb_id,
+            len(episodes),
+        )
         return json.dumps(episodes, ensure_ascii=False)

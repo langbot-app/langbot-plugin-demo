@@ -11,6 +11,12 @@ logger = logging.getLogger(__name__)
 
 
 class UpdateProfile(Tool):
+    @staticmethod
+    def _preview_text(value: str, max_len: int = 80) -> str:
+        text = value.strip().replace("\n", " ")
+        if len(text) <= max_len:
+            return text
+        return f"{text[:max_len]}..."
 
     @staticmethod
     def _normalize_scope(scope: Any) -> str:
@@ -45,6 +51,13 @@ class UpdateProfile(Tool):
         action = params.get("action", "")
         value = params.get("value", "")
         scope = self._normalize_scope(params.get("scope", ""))
+        logger.info(
+            "[LongTermMemory] update_profile called: query_id=%s field=%s action=%s scope=%s",
+            query_id,
+            field,
+            action,
+            scope,
+        )
 
         if not all([field, action, value]):
             return "Error: field, action, and value are all required."
@@ -77,6 +90,14 @@ class UpdateProfile(Tool):
             return "Error: memory knowledge base is not configured for the current pipeline."
 
         target_scope = self._infer_scope(field, scope)
+        logger.info(
+            "[LongTermMemory] update_profile resolved scope: query_id=%s target_scope=%s session_key=%s sender_id=%s value=%r",
+            query_id,
+            target_scope,
+            session_key,
+            sender_id,
+            self._preview_text(str(value)),
+        )
 
         if target_scope == "speaker":
             if not sender_id:
@@ -97,11 +118,11 @@ class UpdateProfile(Tool):
             )
 
         logger.info(
-            "Updated %s profile %s.%s (%s) for %s",
+            "[LongTermMemory] update_profile stored: query_id=%s target_scope=%s field=%s action=%s session_key=%s",
+            query_id,
             target_scope,
             field,
             action,
-            value[:40],
             session_key,
         )
 

@@ -77,3 +77,24 @@ Compared with the demo plugins, this plugin was mainly missing user-facing docum
 - localized `readme/` docs
 
 The manifest, icon, tool YAMLs, command YAML, and KnowledgeEngine schema are already present.
+
+## Logging
+
+The plugin now emits logs at key memory lifecycle points so you can observe how long-term memory is being used during runtime.
+
+You will see logs for:
+
+- plugin initialization and resolved memory context
+- `remember`, `recall_memory`, and `update_profile` tool calls
+- profile injection before model invocation
+- automatic L2 memory retrieval in the KnowledgeEngine
+- episodic memory vector writes, searches, import batches, and deletes
+
+Typical log messages look like:
+
+```text
+[LongTermMemory] remember called: query_id=123 params_keys=['content', 'importance', 'tags']
+[LongTermMemory] memory injection ready: query_id=123 kb_id=kb-1 scope_key=bot:xxx:group_123 sender_id=u1 block_count=2 prompt_chars=280
+[LongTermMemory] engine retrieve called: collection_id=kb-1 top_k=5 session_name=group_123 sender_id=u1 bot_uuid=bot-1 query='user asked about travel plan'
+[LongTermMemory] search_episodes completed: collection_id=kb-1 result_count=3 filters={'user_key': 'bot:bot-1:group_123'}
+```

@@ -65,8 +65,22 @@ class LongTermMemoryEngine(KnowledgeEngine):
 
         embedding_model_uuid = settings.get("embedding_model_uuid", "")
         top_k = retrieval_settings.get("top_k", settings.get("max_results", 5))
+        logger.info(
+            "[LongTermMemory] engine retrieve called: collection_id=%s top_k=%s session_name=%s sender_id=%s bot_uuid=%s query=%r",
+            collection_id,
+            top_k,
+            retrieval_settings.get("session_name"),
+            retrieval_settings.get("sender_id", ""),
+            retrieval_settings.get("bot_uuid", ""),
+            query[:120],
+        )
 
         if not query.strip() or not embedding_model_uuid:
+            logger.info(
+                "[LongTermMemory] engine retrieve skipped: collection_id=%s reason=%s",
+                collection_id,
+                "missing_query" if not query.strip() else "missing_embedding_model_uuid",
+            )
             return RetrievalResponse(results=[], total_found=0)
 
         # embed the query
@@ -84,6 +98,12 @@ class LongTermMemoryEngine(KnowledgeEngine):
 
         async def extend_results(filters: dict[str, Any] | None) -> None:
             nonlocal results
+            logger.info(
+                "[LongTermMemory] engine vector search: collection_id=%s top_k=%s filters=%s",
+                collection_id,
+                top_k,
+                filters,
+            )
             batch = await self.plugin.vector_search(
                 collection_id=collection_id,
                 query_vector=query_vector,
@@ -115,6 +135,11 @@ class LongTermMemoryEngine(KnowledgeEngine):
             await extend_results(None)
 
         results = results[:top_k]
+        logger.info(
+            "[LongTermMemory] engine retrieve completed: collection_id=%s result_count=%s",
+            collection_id,
+            len(results),
+        )
 
         entries: list[RetrievalResultEntry] = []
         for r in results:
@@ -260,6 +285,12 @@ class LongTermMemoryEngine(KnowledgeEngine):
         ids: list[str],
         metas: list[dict[str, Any]],
     ) -> int:
+        logger.info(
+            "[LongTermMemory] engine embed_and_upsert: collection_id=%s batch_size=%s ids=%s",
+            collection_id,
+            len(texts),
+            ids,
+        )
         vectors = await self.plugin.invoke_embedding(embedding_model_uuid, texts)
         await self.plugin.vector_upsert(
             collection_id=collection_id,
@@ -275,8 +306,19 @@ class LongTermMemoryEngine(KnowledgeEngine):
     # ================================================================
 
     async def delete_document(self, kb_id: str, document_id: str) -> bool:
+        logger.info(
+            "[LongTermMemory] delete_document called: kb_id=%s document_id=%s",
+            kb_id,
+            document_id,
+        )
         count = await self.plugin.vector_delete(
             collection_id=kb_id,
             filters={"document_id": document_id},
+        )
+        logger.info(
+            "[LongTermMemory] delete_document completed: kb_id=%s document_id=%s deleted_count=%s",
+            kb_id,
+            document_id,
+            count,
         )
         return count > 0
