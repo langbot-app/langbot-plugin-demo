@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 import uuid as uuid_mod
+from datetime import datetime, timezone
 from typing import Any
 
 from langbot_plugin.api.definition.components.knowledge_engine.engine import (
@@ -53,6 +55,32 @@ class LongTermMemoryEngine(KnowledgeEngine):
         await self.plugin.memory_store.remove_kb_config(kb_id)
 
     # ================================================================
+    # time-decay scoring
+    # ================================================================
+
+    @staticmethod
+    def _time_decay_score(
+        similarity: float, timestamp_str: str, half_life_days: float = 30.0,
+    ) -> float:
+        """Blend similarity with exponential time decay.
+
+        final_score = similarity * exp(-ln2 * age_days / half_life_days)
+
+        A memory exactly ``half_life_days`` old retains 50 % of its
+        similarity weight; very recent memories are nearly unaffected.
+        """
+        if not timestamp_str:
+            return similarity * 0.5
+        try:
+            ts = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+            now = datetime.now(timezone.utc)
+            age_days = max(0.0, (now - ts).total_seconds() / 86400.0)
+            decay = math.exp(-math.log(2) * age_days / half_life_days)
+            return similarity * decay
+        except (ValueError, TypeError):
+            return similarity * 0.5
+
+    # ================================================================
     # retrieve - called by LocalAgentRunner before LLM invocation
     # ================================================================
 
@@ -64,7 +92,7 @@ class LongTermMemoryEngine(KnowledgeEngine):
         store = self.plugin.memory_store
 
         embedding_model_uuid = settings.get("embedding_model_uuid", "")
-        top_k = retrieval_settings.get("top_k", settings.get("max_results", 5))
+        top_k = retrieval_settings.get("top_k", 5)
         logger.info(
             "[LongTermMemory] engine retrieve called: collection_id=%s top_k=%s session_name=%s sender_id=%s bot_uuid=%s query=%r",
             collection_id,
@@ -93,21 +121,24 @@ class LongTermMemoryEngine(KnowledgeEngine):
         sender_id = str(retrieval_settings.get("sender_id", "") or "")
         bot_uuid = str(retrieval_settings.get("bot_uuid", "") or "")
         isolation = settings.get("isolation", "session")
+        # Over-fetch to allow time-decay re-ranking to surface recent
+        # memories that would otherwise be pushed out by pure similarity.
+        fetch_k = top_k * 3
         results: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
 
         async def extend_results(filters: dict[str, Any] | None) -> None:
             nonlocal results
             logger.info(
-                "[LongTermMemory] engine vector search: collection_id=%s top_k=%s filters=%s",
+                "[LongTermMemory] engine vector search: collection_id=%s fetch_k=%s filters=%s",
                 collection_id,
-                top_k,
+                fetch_k,
                 filters,
             )
             batch = await self.plugin.vector_search(
                 collection_id=collection_id,
                 query_vector=query_vector,
-                top_k=top_k,
+                top_k=fetch_k,
                 filters=filters,
             )
             for item in batch:
@@ -117,7 +148,7 @@ class LongTermMemoryEngine(KnowledgeEngine):
                 if item_id:
                     seen_ids.add(item_id)
                 results.append(item)
-                if len(results) >= top_k:
+                if len(results) >= fetch_k:
                     return
 
         if session_name:
@@ -126,19 +157,30 @@ class LongTermMemoryEngine(KnowledgeEngine):
             )
 
             if sender_id:
-                await extend_results({"user_key": scope_key, "sender_id": sender_id})
+                await extend_results({"$and": [{"user_key": scope_key}, {"sender_id": sender_id}]})
 
-            if len(results) < top_k:
+            if len(results) < fetch_k:
                 await extend_results({"user_key": scope_key})
         else:
             # Preserve previous broad-search behavior if session context is absent.
             await extend_results(None)
 
+        # Time-decay re-ranking: blend similarity with recency so that
+        # recent memories can outrank older ones with marginally higher
+        # vector similarity.
+        half_life = float(settings.get("recency_half_life_days", 30))
+        for r in results:
+            sim = r.get("score") or (1.0 - r.get("distance", 1.0))
+            ts = r.get("metadata", {}).get("timestamp", "")
+            r["_final_score"] = self._time_decay_score(float(sim), ts, half_life)
+
+        results.sort(key=lambda r: r["_final_score"], reverse=True)
         results = results[:top_k]
         logger.info(
-            "[LongTermMemory] engine retrieve completed: collection_id=%s result_count=%s",
+            "[LongTermMemory] engine retrieve completed: collection_id=%s result_count=%s half_life_days=%s",
             collection_id,
             len(results),
+            half_life,
         )
 
         entries: list[RetrievalResultEntry] = []
@@ -159,8 +201,8 @@ class LongTermMemoryEngine(KnowledgeEngine):
                     id=r.get("id", ""),
                     content=[{"type": "text", "text": display}],
                     metadata=meta,
-                    score=r.get("score"),
-                    distance=r.get("distance", 1.0 - r.get("score", 1.0)),
+                    score=r.get("_final_score", r.get("score")),
+                    distance=1.0 - r.get("_final_score", r.get("score", 0.0)),
                 )
             )
 
