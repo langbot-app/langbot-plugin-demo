@@ -221,7 +221,9 @@ class MemoryStore:
             return cached[1]
 
         profile = await self._read_json(storage_key)
-        profile = profile if profile else _default_profile()
+        if not profile:
+            profile = _default_profile()
+            await self._write_json(storage_key, profile)
         if len(self._profile_cache) >= self._MAX_PROFILE_CACHE_SIZE:
             self._profile_cache.clear()
         self._profile_cache[storage_key] = (now, profile)
