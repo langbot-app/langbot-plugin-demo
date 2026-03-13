@@ -11,10 +11,16 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryInjector(EventListener):
-    """L1 profile injector.
+    """L1 profile + L2 episodic memory injector.
 
-    Injects user core profile into system prompt via PromptPreProcessing.
-    L2 episodic memory is handled separately by KnowledgeEngine.retrieve().
+    During PromptPreProcessing:
+    - L1 core profile is injected into the system prompt (default_prompt).
+    - L2 episodic memory is retrieved from the memory KB and injected into
+      the conversation context (prompt) so the LLM has automatic recall.
+    - Memory KB is removed from ``_knowledge_base_uuids`` so the runner's
+      naive RAG does not duplicate the retrieval.  The memory KB remains
+      accessible via AgenticRAG's ``query_knowledge`` tool for deeper or
+      filtered queries initiated by the LLM.
     """
 
     def __init__(self):
@@ -58,8 +64,49 @@ class MemoryInjector(EventListener):
             )
             return
 
-        isolation = config.get("isolation", "session")
+        # Remove memory KB from naive RAG pre-processing; L2 episodic
+        # retrieval is handled below so it works regardless of whether
+        # AgenticRAG is installed.
         query_vars = await api.get_query_vars()
+        kb_uuids: list[str] = query_vars.get("_knowledge_base_uuids", [])
+        if kb_id in kb_uuids:
+            kb_uuids = [u for u in kb_uuids if u != kb_id]
+            await api.set_query_var("_knowledge_base_uuids", kb_uuids)
+
+        # --- L2 episodic memory retrieval ---
+        user_message_text: str = query_vars.get("user_message_text", "")
+        if user_message_text:
+            try:
+                entries = await api.retrieve_knowledge(
+                    kb_id=kb_id,
+                    query_text=user_message_text,
+                    top_k=3,
+                )
+                if entries:
+                    texts: list[str] = []
+                    for i, entry in enumerate(entries, 1):
+                        for content in entry.get("content", []):
+                            if content.get("type") == "text" and content.get("text"):
+                                texts.append(f"[{i}] {content['text']}")
+                    if texts:
+                        l2_block = "# Relevant Memories\n\n" + "\n\n".join(texts)
+                        event_ctx.event.prompt.append(
+                            Message(role="system", content=l2_block)
+                        )
+                        logger.info(
+                            "[LongTermMemory] L2 episodic memory injected: query_id=%s kb_id=%s entry_count=%s",
+                            event_ctx.query_id,
+                            kb_id,
+                            len(texts),
+                        )
+            except Exception:
+                logger.exception(
+                    "[LongTermMemory] L2 episodic retrieval failed: query_id=%s kb_id=%s",
+                    event_ctx.query_id,
+                    kb_id,
+                )
+
+        isolation = config.get("isolation", "session")
         bot_uuid = await api.get_bot_uuid()
 
         launcher_type, launcher_id = store.split_session_name(session_name)
