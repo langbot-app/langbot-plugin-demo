@@ -335,8 +335,13 @@ class MemoryStore:
             self._speaker_profile_key(scope_key, sender_id), _default_profile()
         )
 
-    async def export_all_profiles(self) -> list[dict[str, Any]]:
-        """Export all L1 profiles from plugin storage.
+    async def export_profiles_by_scope(
+        self, scope_key: str
+    ) -> list[dict[str, Any]]:
+        """Export L1 profiles that belong to *scope_key*.
+
+        Only profiles whose storage key matches the given scope_key are
+        returned, preventing cross-session / cross-user data leakage.
 
         Returns a list of dicts, each containing type, scope_key,
         optional sender_id, and profile data.
@@ -344,9 +349,11 @@ class MemoryStore:
         keys: list[str] = await self.plugin.get_plugin_storage_keys()
         profiles: list[dict[str, Any]] = []
 
+        session_storage_key = self._session_profile_key(scope_key)
+        speaker_prefix = f"pp:{scope_key}:"
+
         for key in keys:
-            if key.startswith("ps:"):
-                scope_key = key[3:]  # strip "ps:" prefix
+            if key == session_storage_key:
                 profile = await self._read_json(key)
                 if profile and self.has_profile_data(profile):
                     entry: dict[str, Any] = {
@@ -359,14 +366,10 @@ class MemoryStore:
                     }
                     profiles.append(entry)
 
-            elif key.startswith("pp:"):
-                # pp:<scope_key>:<sender_id>
-                rest = key[3:]  # strip "pp:" prefix
-                sep_idx = rest.rfind(":")
-                if sep_idx == -1:
+            elif key.startswith(speaker_prefix):
+                sender_id = key[len(speaker_prefix):]
+                if not sender_id:
                     continue
-                scope_key = rest[:sep_idx]
-                sender_id = rest[sep_idx + 1 :]
                 profile = await self._read_json(key)
                 if profile and self.has_profile_data(profile):
                     entry = {
@@ -403,13 +406,13 @@ class MemoryStore:
         importance = max(1, min(5, importance))
         tags = tags or []
         logger.info(
-            "[LongTermMemory] add_episode: collection_id=%s user_key=%s sender_id=%s importance=%s tags=%s content=%r",
+            "[LongTermMemory] add_episode: collection_id=%s user_key=%s sender_id=%s importance=%s tags=%s content_len=%s",
             collection_id,
             user_key,
             sender_id,
             importance,
             tags,
-            self._preview_text(content),
+            len(content),
         )
 
         metadata = {
@@ -466,7 +469,7 @@ class MemoryStore:
         if not query.strip():
             return []
         logger.info(
-            "[LongTermMemory] search_episodes: collection_id=%s user_key=%s sender_id=%s sender_name=%s top_k=%s source=%s importance_min=%s time_after=%s time_before=%s query=%r",
+            "[LongTermMemory] search_episodes: collection_id=%s user_key=%s sender_id=%s sender_name=%s top_k=%s source=%s importance_min=%s time_after=%s time_before=%s query_len=%s",
             collection_id,
             user_key,
             sender_id,
@@ -476,7 +479,7 @@ class MemoryStore:
             importance_min,
             time_after,
             time_before,
-            self._preview_text(query),
+            len(query),
         )
 
         vectors = await self.plugin.invoke_embedding(embedding_model_uuid, [query])

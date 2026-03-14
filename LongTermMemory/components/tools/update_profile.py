@@ -91,12 +91,12 @@ class UpdateProfile(Tool):
 
         target_scope = self._infer_scope(field, scope)
         logger.info(
-            "[LongTermMemory] update_profile resolved scope: query_id=%s target_scope=%s session_key=%s sender_id=%s value=%r",
+            "[LongTermMemory] update_profile resolved scope: query_id=%s target_scope=%s session_key=%s sender_id=%s value_len=%s",
             query_id,
             target_scope,
             session_key,
             sender_id,
-            self._preview_text(str(value)),
+            len(str(value)),
         )
 
         if target_scope == "speaker":

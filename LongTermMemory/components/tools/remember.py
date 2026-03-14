@@ -60,14 +60,14 @@ class Remember(Tool):
         sender_id = str(query_vars.get("sender_id", "") or "")
         sender_name = str(query_vars.get("sender_name", "") or "")
         logger.info(
-            "[LongTermMemory] remember storing episode: query_id=%s kb_id=%s user_key=%s sender_id=%s importance=%s tags=%s content=%r",
+            "[LongTermMemory] remember storing episode: query_id=%s kb_id=%s user_key=%s sender_id=%s importance=%s tags=%s content_len=%s",
             query_id,
             kb_id,
             user_key,
             sender_id,
             importance,
             tags,
-            self._preview_text(str(content)),
+            len(str(content)),
         )
 
         episode = await store.add_episode(
@@ -83,11 +83,11 @@ class Remember(Tool):
         )
 
         logger.info(
-            "[LongTermMemory] remember stored: query_id=%s episode_id=%s user_key=%s content=%r",
+            "[LongTermMemory] remember stored: query_id=%s episode_id=%s user_key=%s content_len=%s",
             query_id,
             episode["id"],
             user_key,
-            self._preview_text(str(content), 80),
+            len(str(content)),
         )
 
         return f"Remembered: {content}"

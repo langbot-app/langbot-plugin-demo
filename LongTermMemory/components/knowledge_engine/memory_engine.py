@@ -94,13 +94,13 @@ class LongTermMemoryEngine(KnowledgeEngine):
         embedding_model_uuid = settings.get("embedding_model_uuid", "")
         top_k = retrieval_settings.get("top_k", 5)
         logger.info(
-            "[LongTermMemory] engine retrieve called: collection_id=%s top_k=%s session_name=%s sender_id=%s bot_uuid=%s query=%r",
+            "[LongTermMemory] engine retrieve called: collection_id=%s top_k=%s session_name=%s sender_id=%s bot_uuid=%s query_len=%s",
             collection_id,
             top_k,
             retrieval_settings.get("session_name"),
             retrieval_settings.get("sender_id", ""),
             retrieval_settings.get("bot_uuid", ""),
-            query[:120],
+            len(query),
         )
 
         if not query.strip() or not embedding_model_uuid:
@@ -162,8 +162,13 @@ class LongTermMemoryEngine(KnowledgeEngine):
             if len(results) < fetch_k:
                 await extend_results({"user_key": scope_key})
         else:
-            # Preserve previous broad-search behavior if session context is absent.
-            await extend_results(None)
+            # Refuse to search without scope — returning unfiltered results
+            # would leak memories across sessions / users.
+            logger.warning(
+                "[LongTermMemory] engine retrieve refused: collection_id=%s reason=missing_session_name",
+                collection_id,
+            )
+            return RetrievalResponse(results=[], total_found=0)
 
         # Time-decay re-ranking: blend similarity with recency so that
         # recent memories can outrank older ones with marginally higher
@@ -194,7 +199,8 @@ class LongTermMemoryEngine(KnowledgeEngine):
             display = f"[{timestamp}] (importance:{importance})"
             if tags:
                 display += f" [{tags}]"
-            display += f" {content}"
+            # Wrap content in data markers to reduce prompt-injection risk.
+            display += f" <mem>{content}</mem>"
 
             entries.append(
                 RetrievalResultEntry(

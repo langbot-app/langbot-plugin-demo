@@ -96,7 +96,7 @@ class RecallMemory(Tool):
             return "Error: importance_min must be an integer between 1 and 5."
 
         logger.info(
-            "[LongTermMemory] recall_memory searching: query_id=%s kb_id=%s user_key=%s top_k=%s speaker_id=%s speaker_name=%s source=%s importance_min=%s time_after=%s time_before=%s query=%r",
+            "[LongTermMemory] recall_memory searching: query_id=%s kb_id=%s user_key=%s top_k=%s speaker_id=%s speaker_name=%s source=%s importance_min=%s time_after=%s time_before=%s query_len=%s",
             query_id,
             kb_id,
             user_key,
@@ -107,7 +107,7 @@ class RecallMemory(Tool):
             importance_min,
             time_after.strip(),
             time_before.strip(),
-            self._preview_text(query),
+            len(query),
         )
         episodes = await store.search_episodes(
             collection_id=kb_id,

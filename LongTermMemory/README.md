@@ -13,7 +13,7 @@ Long-term memory plugin for LangBot with a dual-layer design:
 - Injects profile memory and current speaker identity through an EventListener
 - Uses a KnowledgeEngine to retrieve relevant episodic memories before model invocation
 - Provides a `!memory` command for inspection and debugging
-- Provides a `!memory export` command to export all L1 profiles as JSON
+- Provides a `!memory export` command to export L1 profiles for the current session as JSON
 
 ## Design
 
@@ -65,7 +65,7 @@ In the current deployment model, this is generally sufficient because plugin ins
 
 ## Import / Export
 
-- **Export (L1 profiles):** Use `!memory export` to export all session and speaker profiles as JSON. You can copy and save the output for backup or migration.
+- **Export (L1 profiles):** Use `!memory export` to export the current session's profiles as JSON. You can copy and save the output for backup or migration.
 - **Import (L2 episodic memory):** Upload a JSON file through the LangBot knowledge base UI to bulk-import episodic memories.
 - **L2 episodic memory cannot be exported** because the SDK does not provide a vector store enumeration API. Only L1 profiles support export.
 

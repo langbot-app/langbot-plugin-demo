@@ -218,7 +218,7 @@ class Memory(Command):
 
         @self.subcommand(
             name="export",
-            help="Export all L1 profiles as JSON",
+            help="Export L1 profiles for the current session",
             usage="!memory export",
             aliases=["e"],
         )
@@ -227,8 +227,9 @@ class Memory(Command):
             context: ExecuteContext,
         ) -> AsyncGenerator[CommandReturn, None]:
             store = self.plugin.memory_store
+            ctx = await self._build_runtime_context(self.plugin, context)
 
-            profiles = await store.export_all_profiles()
+            profiles = await store.export_profiles_by_scope(ctx.session_key)
 
             if not profiles:
                 yield CommandReturn(text="[Memory] No profiles to export.")
