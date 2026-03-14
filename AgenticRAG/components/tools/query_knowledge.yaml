@@ -35,7 +35,13 @@ spec:
     required:
       - action
   llm_prompt: |
-    Search and retrieve information from knowledge bases.
+    Search and retrieve information from knowledge bases. These knowledge bases are the **primary and authoritative source** of domain-specific information for this conversation. Your own training data may be outdated, incomplete, or inaccurate for questions that fall within the scope of these knowledge bases.
+
+    When to use this tool:
+    - **Always query** when the user asks about facts, policies, rules, procedures, product details, or any domain-specific topic — even if you think you already know the answer.
+    - **Always query** when you are not fully certain about the accuracy of your answer.
+    - **Prefer querying over guessing.** A retrieval miss is easy to recover from; a confident but wrong answer is not.
+    - You are the only channel for accessing these knowledge bases — no other automatic retrieval will happen. If you do not call this tool, the knowledge base content will not be available to you at all.
 
     Usage:
     1. First call with action="list" to see available knowledge bases and their descriptions.

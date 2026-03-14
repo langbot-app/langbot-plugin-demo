@@ -23,6 +23,16 @@ Although the underlying runtime can support metadata filters, this plugin does n
 
 Future versions may expose metadata filtering after the ecosystem has a more unified way to describe filterable fields and operators for each knowledge base.
 
+## Retrieval Behavior
+
+When AgenticRAG is enabled, it disables the runner's automatic naive RAG pre-processing for the current pipeline.
+
+- Retrieval is no longer performed automatically before the model answers
+- Whether to query a knowledge base is now a deliberate model decision through `query_knowledge`
+- If the model does not call the tool, no KB content will be injected into context
+
+This reduces unconditional retrieval noise, but it also means tool prompting matters. The `query_knowledge` tool prompt is intentionally biased toward retrieval for factual, policy, procedural, product, and other domain-specific questions so the model prefers querying over guessing.
+
 ## Security Boundary
 
 This tool is scoped to the current pipeline.
@@ -57,6 +67,15 @@ If one KB query fails while others succeed, the tool returns a JSON object with 
 2. Agent selects one KB or a small set of KBs based on name and description.
 3. Agent submits a focused retrieval query.
 4. Agent uses the returned chunks to answer or continue tool use.
+
+## Prompting Intent
+
+The tool prompt is designed to communicate two things to the model:
+
+- these knowledge bases are the authoritative source for in-scope information
+- no fallback automatic retrieval exists once AgenticRAG is enabled
+
+Without that guidance, an LLM may over-trust its pretrained knowledge and under-use retrieval. The current prompt therefore explicitly tells the model to query for uncertain or domain-specific questions and to prefer retrieval over unsupported recall.
 
 ## Logging
 
