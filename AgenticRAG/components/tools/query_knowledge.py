@@ -35,13 +35,19 @@ class QueryKnowledge(Tool):
             normalized_ids.append(kb_id.strip())
 
         if kb_ids is not None:
-            if not isinstance(kb_ids, list) or not kb_ids:
-                return None, "kb_ids must be a non-empty array of strings."
+            if not isinstance(kb_ids, list):
+                return None, "kb_ids must be an array of strings."
+            if not kb_ids:
+                if normalized_ids:
+                    kb_ids = None
+                else:
+                    return None, "kb_ids must be a non-empty array of strings. For a single knowledge base, use kb_id instead."
 
-            for item in kb_ids:
-                if not isinstance(item, str) or not item.strip():
-                    return None, "kb_ids must contain only non-empty strings."
-                normalized_ids.append(item.strip())
+            if kb_ids is not None:
+                for item in kb_ids:
+                    if not isinstance(item, str) or not item.strip():
+                        return None, "kb_ids must contain only non-empty strings."
+                    normalized_ids.append(item.strip())
 
         if not normalized_ids:
             return None, "Either kb_id or kb_ids is required for action 'query'."
