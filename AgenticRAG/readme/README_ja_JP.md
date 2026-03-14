@@ -46,7 +46,10 @@ AgenticRAG の 1 回の処理は、おおむね 4 段階です。
 
 ### 1. naive RAG を無効化する
 
-`PromptPreProcessing` の段階で、plugin は runner の `_knowledge_base_uuids` をクリアし、既定の naive RAG 前処理を止めます。
+`PromptPreProcessing` の段階で、plugin は現在の LLM が tool call を使えるかを先に確認します。
+
+- tool call を使える場合は runner の `_knowledge_base_uuids` をクリアし、既定の naive RAG 前処理を止めます
+- tool call を使えない場合は naive RAG を残し、KB 検索自体が失われないようにします
 
 ### 2. 検索方針を system prompt に注入する
 
@@ -106,6 +109,8 @@ naive RAG と比べると、この設計には次の利点があります。
 一方で、モデルがまったくツールを呼ばなければ KB 内容は一切入ってきません。
 
 そのため AgenticRAG は「モデルが自然に検索してくれるはず」とは考えず、system prompt と tool prompt の両方で検索優先の方針を明示しています。
+
+そのため現在の実装では、tool call 非対応モデルに対して naive RAG を無効化しない保護も入れています。これがないと、AgenticRAG を有効にしただけで KB 検索が完全に失われるためです。
 
 ## パラメータ
 

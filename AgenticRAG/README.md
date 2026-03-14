@@ -42,7 +42,10 @@ An AgenticRAG request has four main stages:
 
 ### 1. Disable naive retrieval
 
-During `PromptPreProcessing`, the plugin clears the runner's `_knowledge_base_uuids` so the normal naive pre-retrieval step is skipped.
+During `PromptPreProcessing`, the plugin checks whether the active LLM supports tool calling.
+
+- if tool calling is supported, it clears the runner's `_knowledge_base_uuids` so the normal naive pre-retrieval step is skipped
+- if tool calling is not supported, it keeps naive RAG enabled as a fallback so KB retrieval does not disappear completely
 
 ### 2. Inject retrieval policy into the system prompt
 
@@ -76,6 +79,10 @@ When AgenticRAG is enabled, it disables the runner's automatic naive RAG pre-pro
 - Whether to query a knowledge base is now a deliberate model decision through `query_knowledge`
 - If the model does not call the tool, no KB content will be injected into context
 
+There is one important exception:
+
+- if the active LLM does not support tool calling, AgenticRAG keeps naive RAG enabled instead of disabling it
+
 This reduces unconditional retrieval noise, but it also means prompting matters. The current implementation therefore uses **both**:
 
 - a tool prompt on `query_knowledge`
@@ -99,6 +106,8 @@ Compared with naive RAG, this design gives you:
 - room for iterative retrieval, re-querying, and multi-KB reasoning
 
 The downside is also real: if the model never calls the tool, no KB content appears. That is why the plugin explicitly adds retrieval-oriented prompting, instead of assuming the model will naturally choose retrieval often enough.
+
+This is also why the plugin now detects tool-call capability before disabling naive RAG. Without that guard, enabling AgenticRAG on a non-tool-capable model would accidentally break KB retrieval entirely.
 
 ## Security Boundary
 
