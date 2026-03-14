@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import re
 import statistics
 from collections import Counter
 from typing import Callable, Awaitable, Optional
@@ -21,6 +22,23 @@ _HEADING_RATIO_H1 = 2.0
 _HEADING_RATIO_H2 = 1.6
 _HEADING_RATIO_H3 = 1.3
 _HEADING_MAX_LINE_LEN = 100  # lines longer than this are unlikely headings
+
+_THINK_TAG_RE = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
+_VISION_REFUSAL_PATTERNS = (
+    "i don't have the ability to see or analyze images",
+    "i do not have the ability to see or analyze images",
+    "i can't see or analyze images",
+    "i cannot see or analyze images",
+    "no image was attached",
+    "what can i help you with",
+    "我无法查看图片",
+    "我无法直接查看图片",
+    "我不能查看图片",
+    "没有附加图片",
+    "没有附加到你的消息",
+    "如果你愿意我帮助",
+    "what you'd like me to help with",
+)
 
 
 async def parse_pdf(
@@ -369,6 +387,7 @@ async def _process_vision_tasks(
     results = await asyncio.gather(*[_call_vision(t) for t in vision_tasks])
 
     for task, vision_text in results:
+        vision_text = _sanitize_vision_text(vision_text)
         if not vision_text:
             continue
 
@@ -417,6 +436,22 @@ async def _process_vision_tasks(
             full_text = full_text.replace(placeholder, replacement, 1)
 
     return full_text
+
+
+def _sanitize_vision_text(text: str) -> str:
+    """Strip chain-of-thought and common refusal boilerplate from vision output."""
+    cleaned = _THINK_TAG_RE.sub("", text).strip()
+    if not cleaned:
+        return ""
+
+    lowered = cleaned.lower()
+    if any(pattern in lowered for pattern in _VISION_REFUSAL_PATTERNS):
+        return ""
+
+    # Some models prepend labels before the actual description.
+    cleaned = re.sub(r"^\[(?:图片描述|image description)\s*:\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = cleaned.rstrip(" ]")
+    return cleaned.strip()
 
 
 def _pymupdf_table_to_markdown(table) -> str:
