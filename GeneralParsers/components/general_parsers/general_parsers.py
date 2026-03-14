@@ -70,7 +70,11 @@ class GeneralParsers(Parser):
         if text is None:
             text = ''
 
-        sections = self._split_sections(text, filename)
+        sections = self._split_sections(text, filename, track_pages=(extension == 'pdf'))
+
+        # Strip page markers from the text output
+        if extension == 'pdf':
+            text = re.sub(r'<!-- PAGE:\d+ -->\n?', '', text)
 
         metadata = {
             'filename': filename,
@@ -88,14 +92,29 @@ class GeneralParsers(Parser):
     # ========== Section Extraction ==========
 
     @staticmethod
-    def _split_sections(text: str, filename: str) -> list[TextSection]:
+    def _split_sections(text: str, filename: str, track_pages: bool = False) -> list[TextSection]:
         """Split text into sections based on heading patterns.
 
         Supports Markdown headings, Chinese chapter/section numbering,
         numeric outlines (1. / 1.1 / 1.1.1), and English chapter/section labels.
+
+        If track_pages is True, extracts page markers (<!-- PAGE:N -->) from the text
+        and assigns page numbers to each section.
         """
         if not text:
             return []
+
+        # Extract page markers and build position→page mapping, then strip markers
+        _PAGE_MARKER_RE = re.compile(r'<!-- PAGE:(\d+) -->\n?')
+        page_positions = []  # sorted list of (position_in_clean_text, page_number)
+        if track_pages:
+            # Build mapping from clean-text positions to page numbers
+            offset = 0  # cumulative chars removed by stripping markers
+            for m in _PAGE_MARKER_RE.finditer(text):
+                clean_pos = m.start() - offset
+                page_positions.append((clean_pos, int(m.group(1))))
+                offset += len(m.group(0))
+            text = _PAGE_MARKER_RE.sub('', text)
 
         # Each pattern: (compiled regex, level_func(match) -> int, heading_func(match) -> str)
         heading_patterns = [
@@ -167,6 +186,7 @@ class GeneralParsers(Parser):
                     content=text,
                     heading=filename,
                     level=0,
+                    page=page_positions[0][1] if page_positions else None,
                 )
             ]
 
@@ -187,23 +207,27 @@ class GeneralParsers(Parser):
             content_end = deduped[i + 1][0] if i + 1 < len(deduped) else len(text)
             content = text[content_start:content_end].strip()
             if content:
+                page = _find_page(start, page_positions) if page_positions else None
                 sections.append(
                     TextSection(
                         content=content,
                         heading=heading,
                         level=level,
+                        page=page,
                     )
                 )
 
         # Include text before first heading if any
         preamble = text[: deduped[0][0]].strip()
         if preamble:
+            page = _find_page(0, page_positions) if page_positions else None
             sections.insert(
                 0,
                 TextSection(
                     content=preamble,
                     heading=filename,
                     level=0,
+                    page=page,
                 ),
             )
 
@@ -239,26 +263,32 @@ class GeneralParsers(Parser):
 
         def _sync():
             doc = fitz.open(stream=file_bytes, filetype='pdf')
+            page_count = len(doc)
             page_texts = []
             images = []
+            scanned_pages = []
+            total_word_count = 0
+            has_tables = False
 
             for page_idx, page in enumerate(doc):
                 page_num = page_idx + 1
 
                 # --- Collect table regions to avoid duplicating table text ---
                 tables = page.find_tables()
+                if tables:
+                    has_tables = True
                 table_rects = []
-                table_entries = []  # (y0, markdown_str)
+                table_entries = []  # (y0, x0, markdown_str)
                 for table in tables:
                     bbox = fitz.Rect(table.bbox)
                     table_rects.append(bbox)
                     md = _pymupdf_table_to_markdown(table)
                     if md:
-                        table_entries.append((bbox.y0, md))
+                        table_entries.append((bbox.y0, bbox.x0, md))
 
                 # --- Extract text blocks with position info ---
                 text_dict = page.get_text('dict', flags=fitz.TEXT_PRESERVE_WHITESPACE)
-                text_entries = []  # (y0, text_str)
+                text_entries = []  # (y0, x0, text_str)
                 for block in text_dict.get('blocks', []):
                     if block['type'] != 0:  # skip image blocks
                         continue
@@ -281,18 +311,18 @@ class GeneralParsers(Parser):
                         if stripped:
                             lines_text.append(stripped)
                     if lines_text:
-                        text_entries.append((block['bbox'][1], '\n'.join(lines_text)))
+                        text_entries.append((block['bbox'][1], block['bbox'][0], '\n'.join(lines_text)))
 
                 # --- Merge text and table entries by vertical position ---
                 all_entries = []
-                for y0, text in text_entries:
-                    all_entries.append((y0, 'text', text))
-                for y0, md in table_entries:
-                    all_entries.append((y0, 'table', md))
-                all_entries.sort(key=lambda e: e[0])
+                for y0, x0, text in text_entries:
+                    all_entries.append((y0, x0, 'text', text))
+                for y0, x0, md in table_entries:
+                    all_entries.append((y0, x0, 'table', md))
+                all_entries.sort(key=lambda e: (e[0], e[1]))
 
                 page_parts = []
-                for _, kind, content in all_entries:
+                for _, _, kind, content in all_entries:
                     if kind == 'table':
                         page_parts.append('\n' + content + '\n')
                     else:
@@ -319,26 +349,90 @@ class GeneralParsers(Parser):
                     except Exception as e:
                         logger.warning(f'Failed to extract image xref={xref} on page {page_num}: {e}')
 
+                # --- Detect scanned pages and count words ---
+                plain_text = page.get_text('text').strip()
+                total_word_count += len(plain_text)
+                page_has_images = len(page.get_images(full=True)) > 0
+                if len(plain_text) < 30 and page_has_images:
+                    scanned_pages.append(page_num)
+
                 if page_parts:
-                    page_texts.append('\n'.join(page_parts))
+                    page_texts.append(f'<!-- PAGE:{page_num} -->\n' + '\n'.join(page_parts))
 
             doc.close()
 
             full_text = '\n\n'.join(page_texts)
-            extra_metadata = {}
+            extra_metadata = {
+                'page_count': page_count,
+                'word_count': total_word_count,
+                'has_tables': has_tables,
+                'has_scanned_pages': bool(scanned_pages),
+            }
+            if scanned_pages:
+                extra_metadata['scanned_pages'] = scanned_pages
             if images:
                 extra_metadata['images'] = images
             return full_text, extra_metadata
 
         return await self._run_sync(_sync)
 
-    async def _parse_docx(self, file_bytes: bytes, filename: str) -> str:
+    async def _parse_docx(self, file_bytes: bytes, filename: str) -> tuple[str, dict]:
+        """Parse DOCX with table extraction, heading styles, list recognition,
+        and document-flow-order output.
+
+        Returns:
+            A tuple of (text, extra_metadata).
+        """
         logger.info(f'Parsing DOCX file: {filename}')
 
         def _sync():
+            from docx.table import Table as DocxTable
+            from docx.text.paragraph import Paragraph
+
             doc = Document(io.BytesIO(file_bytes))
-            text_content = [p.text for p in doc.paragraphs if p.text.strip()]
-            return '\n'.join(text_content)
+            parts = []
+            has_tables = False
+            word_count = 0
+
+            for block in doc.element.body:
+                tag = block.tag
+
+                if tag.endswith('}p'):
+                    para = Paragraph(block, doc)
+                    text = para.text.strip()
+                    if not text:
+                        continue
+
+                    style_name = para.style.name if para.style else ''
+
+                    # Heading recognition: "Heading 1" through "Heading 6"
+                    heading_match = re.match(r'Heading\s*(\d+)', style_name, re.IGNORECASE)
+                    if heading_match:
+                        level = min(int(heading_match.group(1)), 6)
+                        parts.append('#' * level + ' ' + text)
+                    elif 'List' in style_name:
+                        parts.append('* ' + text)
+                    else:
+                        parts.append(text)
+
+                    word_count += len(text)
+
+                elif tag.endswith('}tbl'):
+                    has_tables = True
+                    try:
+                        table = DocxTable(block, doc)
+                        md = _docx_table_to_markdown(table)
+                        if md:
+                            parts.append('\n' + md + '\n')
+                    except Exception as e:
+                        logger.warning(f'Failed to extract DOCX table: {e}')
+
+            full_text = '\n'.join(parts)
+            extra_metadata = {
+                'word_count': word_count,
+                'has_tables': has_tables,
+            }
+            return full_text, extra_metadata
 
         return await self._run_sync(_sync)
 
@@ -418,6 +512,21 @@ class GeneralParsers(Parser):
         return await self._run_sync(_sync)
 
 
+def _find_page(position: int, page_positions: list[tuple[int, int]]) -> int | None:
+    """Find which page a text position belongs to.
+
+    page_positions is a sorted list of (char_position, page_number).
+    Returns the page number for the largest marker position <= the given position.
+    """
+    result = None
+    for pos, page in page_positions:
+        if pos <= position:
+            result = page
+        else:
+            break
+    return result
+
+
 def _extract_table(table_element) -> str:
     """Convert a BeautifulSoup table element into a Markdown table string."""
     headers = [th.get_text().strip() for th in table_element.find_all('th')]
@@ -465,6 +574,30 @@ def _pymupdf_table_to_markdown(table) -> str:
     for row in cleaned[1:]:
         # Pad or trim row to match header length
         padded = row + [''] * (len(header) - len(row)) if len(row) < len(header) else row[:len(header)]
+        lines.append('| ' + ' | '.join(padded) + ' |')
+
+    return '\n'.join(lines)
+
+
+def _docx_table_to_markdown(table) -> str:
+    """Convert a python-docx Table object into a Markdown table string."""
+    rows_data = []
+    for row in table.rows:
+        cells = [cell.text.strip() for cell in row.cells]
+        rows_data.append(cells)
+
+    if not rows_data:
+        return ''
+
+    # First row as header
+    header = rows_data[0]
+    col_count = len(header)
+    lines = [
+        '| ' + ' | '.join(header) + ' |',
+        '| ' + ' | '.join(['---'] * col_count) + ' |',
+    ]
+    for row in rows_data[1:]:
+        padded = row + [''] * (col_count - len(row)) if len(row) < col_count else row[:col_count]
         lines.append('| ' + ' | '.join(padded) + ' |')
 
     return '\n'.join(lines)

@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: Tool
+metadata:
+  name: update_profile
+  label:
+    en_US: UpdateProfile
+    zh_Hans: 更新画像
+  description:
+    en_US: Update the session's core profile information.
+    zh_Hans: 更新当前会话的核心画像信息。
+
+spec:
+  parameters:
+    type: object
+    properties:
+      scope:
+        type: string
+        enum:
+          - session
+          - speaker
+        description: "session: shared profile for the whole chat. speaker: profile for the current speaker."
+      field:
+        type: string
+        enum:
+          - name
+          - traits
+          - preferences
+          - notes
+        description: Which profile field to update.
+      action:
+        type: string
+        enum:
+          - set
+          - add
+          - remove
+        description: "set: replace the value. add: append to the list. remove: remove from the list."
+      value:
+        type: string
+        description: The value to set/add/remove.
+    required:
+      - field
+      - action
+      - value
+
+  llm_prompt: |
+    Update the session profile — shared context about this conversation (group chat or private chat).
+    This tool can update either:
+    - the shared session profile for the whole chat
+    - the current speaker's profile for person-specific stable facts
+
+    Fields:
+    - name: A label for this session, or a participant's preferred name.
+    - traits: Key stable facts about a participant or the session.
+    - preferences: Communication preferences for the current speaker or the whole session.
+    - notes: Free-form notes, usually shared session context.
+
+    Scopes:
+    - speaker: Use for stable facts about the current speaker, such as "Alice likes coffee" or "Alice is a software engineer".
+    - session: Use for shared context about the whole chat, such as "group for project X" or "respond in Chinese here".
+
+    Actions:
+    - set: Replace the field value entirely.
+    - add: Add an item to a list field (traits/preferences) or append to notes.
+    - remove: Remove an item from a list field or clear notes.
+
+    Important:
+    - When adding facts about a person in a group chat, prefer scope="speaker".
+    - When adding shared group context, use scope="session".
+    - When adding traits about specific people, include their name (e.g. "Alice likes coffee" not just "likes coffee").
+    For specific events or temporal facts, use the "remember" tool instead.
+
+execution:
+  python:
+    path: update_profile.py
+    attr: UpdateProfile
