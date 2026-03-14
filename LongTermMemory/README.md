@@ -3,7 +3,7 @@
 Long-term memory plugin for LangBot with a dual-layer design:
 
 - L1 core profile injected into the system prompt
-- L2 episodic memory retrieved through the KnowledgeEngine and vector database
+- L2 episodic memory retrieved through vector search and injected into context
 
 ## What It Does
 
@@ -11,9 +11,95 @@ Long-term memory plugin for LangBot with a dual-layer design:
 - Exposes a `recall_memory` tool for active episodic memory lookup with controlled filters
 - Exposes an `update_profile` tool for stable profile updates
 - Injects profile memory and current speaker identity through an EventListener
-- Uses a KnowledgeEngine to retrieve relevant episodic memories before model invocation
+- Uses an EventListener to retrieve and inject relevant episodic memories before model invocation
 - Provides a `!memory` command for inspection and debugging
 - Provides a `!memory export` command to export L1 profiles for the current session as JSON
+
+## Overall Design
+
+This plugin is not trying to dump the entire chat history into context. Instead, it splits long-term memory into two layers with different storage and retrieval behavior:
+
+- **L1 core profile**: stable, low-frequency facts such as names, preferences, identity, and long-lived notes
+- **L2 episodic memory**: time-sensitive and situational facts such as recent events, plans, and experiences
+
+This split exists for a reason:
+
+- Stable profile data is cheap and reliable to inject into the system prompt
+- Episodic memory keeps growing over time, so it should be retrieved on demand instead of fully injected every turn
+- Agents should update stable profile facts differently from event-like memories
+
+## How This Differs From OpenClaw-Style Personal Assistant Memory
+
+Recently, a lot of agent systems have discussed designs like OpenClaw: long-term memory stored primarily as user-readable text files such as `MEMORY.md`, combined with summaries, reflection, and light retrieval logic.
+
+That approach has clear strengths:
+
+- memory is fully transparent to the user
+- plain text is naturally easy to back up, sync, and version-control
+- it fits single-user, single-assistant, high-continuity personal workflows very well
+- when memory volume stays small, full-text understanding can indeed be "good enough"
+
+But LongTermMemory in LangBot is solving a different problem. Typical LangBot deployment looks more like:
+
+- one bot serving multiple group chats and private chats
+- one plugin instance handling multiple sessions and multiple speakers
+- memory including shared group context, current-speaker profile, and session-level episodic facts
+- explicit isolation boundaries between sessions, bots, and speakers
+
+Because of that, we did not adopt a "single text file as the source of truth" design. We chose a layered architecture that better matches LangBot's multi-session runtime model.
+
+### What OpenClaw-like memory is optimized for
+
+Abstractly, that design is optimized for:
+
+- **single-user personal assistants**
+- **human-readable text as the primary long-term memory form**
+- **transparency, editability, and narrative continuity**
+- **an assumption that memory size stays manageable and the user is willing to curate it directly**
+
+That is a very reasonable fit for personal AI companions, research copilots, and private assistant workflows.
+
+### Why LangBot does not simply copy that model
+
+LongTermMemory is designed around different operating constraints: multiple sessions, multiple speakers, explicit isolation, controlled injection, and retrievable episodic recall.
+
+If we turned long-term memory into one narrative file like `MEMORY.md`, several problems would appear quickly:
+
+- **Isolation would become hard**
+  - how should memories from group A, group B, and private chat C coexist safely?
+  - how do you cleanly separate one speaker's stable profile from a shared narrative log?
+- **Injection granularity would become unstable**
+  - system prompts need stable profile state, not an entire chronological diary
+  - automatic recall needs the most relevant memory slices for the current query, not the whole story
+- **Multi-user boundaries are first-class in LangBot**
+  - in a personal assistant, "the user" is usually one person
+  - in LangBot, current speaker, current session, and current bot all matter
+- **Automatic injection and active retrieval are different needs**
+  - stable profile data should be injected consistently
+  - episodic memory should be retrieved selectively
+  - forcing both into one text-only memory shape becomes awkward
+
+### The tradeoff we made
+
+So the LongTermMemory design is essentially this tradeoff:
+
+- **What we borrow from that philosophy**
+  - memory should not be treated as only a black-box vector store
+  - stable profile, temporal memory, and long-term behavior adjustment all matter
+  - not everything should be dumped into context every turn
+
+- **Where we deliberately differ**
+  - we do not use a narrative text diary as the only memory source of truth
+  - we split stable profile and episodic memory explicitly
+  - we prioritize isolation across sessions, speakers, and bots
+  - we let L2 memory plug naturally into LangBot's KB / retrieval system instead of relying only on full-text reading
+
+In short:
+
+- OpenClaw is mainly answering: "How should a personal assistant keep readable, editable, reflective long-term memory?"
+- LongTermMemory is mainly answering: "How should a bot working across groups and private chats keep stable profile state and retrievable experience memory under explicit isolation rules?"
+
+Neither direction is universally "better". They optimize for different products and different failure modes.
 
 ## Design
 
@@ -25,6 +111,54 @@ This plugin intentionally stays close to LangBot's existing extension points ins
 - The plugin currently assumes a single memory KB per plugin instance and isolates memory by metadata
 
 The current implementation is built around the existing LangBot and SDK APIs. If LangBot later adds more explicit memory-oriented APIs, session identity APIs, or KB registration APIs, the plugin could be simplified, but the current architecture would still remain valid.
+
+## How It Works
+
+An end-to-end long-term memory flow has four main parts:
+
+### 1. L1 profile writes
+
+- The agent uses `update_profile` to write stable facts
+- Data is stored in plugin storage as structured JSON
+- Profiles are stored at either `session` or `speaker` scope
+
+### 2. L2 episodic writes
+
+- The agent uses `remember` to write event-like memory
+- Each memory carries metadata such as timestamp, importance, tags, and scope
+- Those memories are embedded and stored in the vector database through the plugin's KnowledgeEngine
+
+### 3. Automatic pre-response injection
+
+- During `PromptPreProcessing`, the EventListener resolves the current session identity
+- For L1:
+  - it loads the shared session profile
+  - it loads the current speaker profile
+  - it injects both, along with current speaker identity, into `default_prompt`
+- For L2:
+  - it runs one episodic retrieval using the current user message
+  - retrieved memories are injected as factual context blocks
+
+So both L1 and L2 enter the model context before answer generation, but in different forms: L1 as system prompt memory, L2 as retrieved context.
+
+### 4. Active lookup and debugging
+
+- If automatic injection is insufficient, the agent can call `recall_memory`
+- For inspection and debugging, you can use `!memory`, `!memory profile`, and `!memory search`
+- `!memory export` exports only the current scope's L1 profiles for backup or migration
+
+## Relationship With AgenticRAG
+
+When AgenticRAG is enabled together with LongTermMemory:
+
+- LongTermMemory removes its own memory KB from naive RAG pre-processing
+- automatic L2 recall is still handled by LongTermMemory itself
+- the same memory KB can still be queried explicitly through AgenticRAG's `query_knowledge` tool
+
+This avoids duplicate recall while preserving both paths:
+
+- automatic memory recall
+- deeper agent-initiated retrieval when needed
 
 ## Why There Is No Agent-Side Metadata Filter
 
@@ -49,6 +183,47 @@ Two isolation modes are supported:
 
 In the current deployment model, this is generally sufficient because plugin instances are usually bound to a specific LangBot runtime/bot environment.
 
+## Isolation Rules In Detail
+
+There are two related but slightly different scope concepts in this plugin:
+
+- **session_key**: the logical conversation identity, such as one group chat or one private chat
+- **scope_key / user_key**: the actual key used for profile storage or L2 retrieval isolation
+
+### How L1 profiles are isolated
+
+L1 profiles are always stored within the current conversation scope:
+
+- `session profile`
+  - shared profile for the current conversation
+  - useful for group-level or conversation-level stable context
+- `speaker profile`
+  - stable facts about the current speaker
+  - useful for person-specific preferences, identity, and notes
+
+Because of that, `!memory export` exports only the profiles that belong to the current `session_key`, not every profile in the whole plugin instance.
+
+### How L2 episodic memory is isolated
+
+L2 memories are written into the vector store with isolation metadata, then filtered at retrieval time:
+
+- `session`
+  - memories from group A are not recalled in group B
+  - memories from one private chat are not recalled in another
+- `bot`
+  - all sessions under the same bot share one episodic memory space
+  - useful when you want cross-session long-term experience sharing
+
+When `sender_id` is available, the plugin can also prefer speaker-related memories before widening to the broader scope.
+
+### Why L1 and L2 isolation are not exactly the same
+
+That is intentional:
+
+- L1 behaves like stable profile state, so precise session / speaker storage makes sense
+- L2 behaves like a retrievable experience base, so metadata-based filtering is the more scalable model
+- this keeps L1 precise and L2 flexible
+
 ## How To Use
 
 1. Install and enable the plugin.
@@ -65,25 +240,106 @@ In the current deployment model, this is generally sufficient because plugin ins
 
 ## Import / Export
 
-- **Export (L1 profiles):** Use `!memory export` to export the current session's profiles as JSON. You can copy and save the output for backup or migration.
+- **Export (L1 profiles):** Use `!memory export` to export the current scope's session and speaker profiles as JSON. It does not export data from other sessions or scopes.
 - **Import (L2 episodic memory):** Upload a JSON file through the LangBot knowledge base UI to bulk-import episodic memories.
 - **L2 episodic memory cannot be exported** because the SDK does not provide a vector store enumeration API. Only L1 profiles support export.
 
+## Key Technical Q&A
+
+### Q1. Why split memory into L1 and L2 instead of storing everything in the vector database?
+
+Because the access patterns are different:
+
+- L1 contains stable facts and should be injected consistently
+- L2 contains event-like memory and should be retrieved on demand
+
+Putting both into the vector store would make stable profile recall less reliable and make memory updates semantically messy.
+
+### Q2. Why is L2 retrieved instead of fully injected every turn?
+
+Because L2 grows over time. Full injection would quickly cause:
+
+- prompt bloat
+- too much irrelevant noise
+- old memory crowding out the actually relevant context
+
+The current strategy is to retrieve a small relevant subset automatically, then let the agent use `recall_memory` if it needs more.
+
+### Q3. Does L2 memory decay over time?
+
+Yes.
+
+L2 ranking does not depend only on vector similarity. It also applies time decay so that newer memories tend to rank higher than older ones.
+
+The current implementation uses a half-life style approach:
+
+- when a memory reaches `half_life_days`, its time weight decays to roughly 50%
+- newer memory is favored in ranking
+- older memory is not deleted automatically; it just loses ranking advantage
+
+This is meant to prioritize recent context, not to hard-delete the past.
+
+### Q4. Do old memories eventually disappear completely?
+
+Not automatically.
+
+Time decay affects ranking, not hard deletion. Old memories can still be recalled if they remain relevant enough.
+
+### Q5. How should I choose between `session` and `bot` isolation?
+
+In practice:
+
+- choose `session`
+  - when each group chat / private chat should keep independent memory
+  - when you want lower risk of cross-session leakage
+- choose `bot`
+  - when the bot should share long-term experience across sessions
+  - when broader recall is more important than stricter separation
+
+If you are unsure, start with `session`.
+
+### Q6. Why does `!memory export` only export the current scope?
+
+That is a deliberate safety boundary.
+
+Allowing export of every L1 profile in the plugin instance would make cross-session data leakage much easier. Restricting export to the current scope follows a minimum-exposure principle.
+
+### Q7. Why is L2 export not supported yet?
+
+Because the SDK still does not provide a stable way to enumerate the full vector store content.
+
+Today LongTermMemory can reliably:
+
+- write L2 memories
+- retrieve L2 memories with filters
+- bulk-import L2 memories through the knowledge base UI
+
+But it still cannot safely reconstruct the entire L2 store as an export.
+
+### Q8. Will LongTermMemory and AgenticRAG duplicate recall when both are enabled?
+
+No, that duplication is exactly what the current design avoids:
+
+- LongTermMemory removes its own naive RAG pre-processing
+- automatic L2 recall is handled by LongTermMemory
+- deeper ad hoc retrieval can still go through AgenticRAG
+
 ## Components
 
-- KnowledgeEngine: [`memory_engine.py`](/home/yhh/workspace/langbot-plugin-memory/components/knowledge_engine/memory_engine.py)
-- EventListener: [`memory_injector.py`](/home/yhh/workspace/langbot-plugin-memory/components/event_listener/memory_injector.py)
-- Tools: [`remember.py`](/home/yhh/workspace/langbot-plugin-memory/components/tools/remember.py), [`recall_memory.py`](/home/yhh/workspace/langbot-plugin-memory/components/tools/recall_memory.py), [`update_profile.py`](/home/yhh/workspace/langbot-plugin-memory/components/tools/update_profile.py)
-- Command: [`memory.py`](/home/yhh/workspace/langbot-plugin-memory/components/commands/memory.py)
+- KnowledgeEngine: [memory_engine.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/knowledge_engine/memory_engine.py)
+- EventListener: [memory_injector.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/event_listener/memory_injector.py)
+- Tools: [remember.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/tools/remember.py), [recall_memory.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/tools/recall_memory.py), [update_profile.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/tools/update_profile.py)
+- Command: [memory.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/commands/memory.py)
 
 ## Current Gaps
 
-Compared with the demo plugins, this plugin was mainly missing user-facing documentation. The main missing pieces were:
+The README now covers the core design, isolation rules, export boundaries, and major components.
 
-- root `README.md`
-- localized `readme/` docs
+Still worth adding later:
 
-The manifest, icon, tool YAMLs, command YAML, and KnowledgeEngine schema are already present.
+- synchronized updates for localized docs
+- concrete JSON import examples
+- best-practice examples for `remember`, `recall_memory`, and `update_profile`
 
 ## Logging
 

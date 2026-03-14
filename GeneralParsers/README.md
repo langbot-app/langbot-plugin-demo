@@ -6,7 +6,7 @@ Official LangBot parser plugin that extracts structured text from files for Know
 
 | Format | MIME Type | Parser |
 |--------|-----------|--------|
-| PDF | `application/pdf` | PyPDF2 page text extraction |
+| PDF | `application/pdf` | PyMuPDF-based layout-aware extraction with tables, page markers, and optional vision enhancement |
 | DOCX | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` | python-docx paragraph extraction |
 | Markdown | `text/markdown` | Convert to HTML, then structured extraction (headings, lists, code blocks, tables) |
 | HTML | `text/html` | BeautifulSoup extraction (auto-removes script/style) |
@@ -36,17 +36,51 @@ Official LangBot parser plugin that extracts structured text from files for Know
 
 ## Features
 
-- **Section Structure Recognition** - Detects Markdown-style headings (`# ~ ######`) and splits into leveled sections
-- **Table to Markdown** - Tables in HTML/Markdown are converted to Markdown table format
+- **Optional Vision Model Support** - Configure a vision-capable LLM to OCR scanned PDF pages and describe embedded images
+- **Improved PDF Parsing** - PyMuPDF-based extraction preserves page boundaries, merges tables into output, and emits richer document metadata
+- **Scanned PDF Handling** - Detects likely scanned pages and uses the vision model for OCR when configured
+- **Embedded Image Description** - Extracts PDF images and can turn them into short inline descriptions for downstream retrieval
+- **Header/Footer Filtering** - Repeated page headers and footers are detected and removed from PDF output
+- **Section Structure Recognition** - Detects Markdown-style headings (`# ~ ######`) and splits output into leveled sections
+- **Table to Markdown** - Tables in PDF/HTML/Markdown are converted to Markdown table format
 - **Async Parsing** - File parsing runs in a thread pool to avoid blocking the event loop
 - **Auto Encoding Detection** - Uses chardet for encoding detection, supports GBK, UTF-8, etc.
 - **Format Fallback** - Unsupported formats are automatically tried as plain text
 
+## Configuration
+
+The plugin exposes one optional config item:
+
+- `vision_llm_model_uuid`: a vision-capable LLM used for scanned-page OCR and PDF image description
+
+If this option is left empty, GeneralParsers still works normally, but PDF parsing falls back to text/layout extraction only.
+
 ## Usage
 
 1. Install this plugin in LangBot
-2. When uploading files to a knowledge base, select GeneralParsers as the parser
-3. Parse results are automatically passed to the KnowledgeEngine plugin for further processing
+2. Optionally configure a vision model if you want OCR for scanned PDFs and image descriptions
+3. When uploading files to a knowledge base, select GeneralParsers as the parser
+4. Parse results are automatically passed to the KnowledgeEngine plugin for further processing
+
+## Output Shape
+
+GeneralParsers returns a structured `ParseResult` containing:
+
+- `text`: the full extracted text
+- `sections`: heading-aware text sections for chunking strategies that prefer structure
+- `metadata`: document metadata such as filename, MIME type, page count, table presence, scanned-page flags, and vision usage stats
+
+Recent PDF parser metadata includes fields such as:
+
+- `page_count`
+- `word_count`
+- `has_tables`
+- `has_scanned_pages`
+- `headers_footers_removed`
+- `vision_used`
+- `vision_tasks_count`
+- `vision_scanned_pages_count`
+- `vision_images_described_count`
 
 ## Development
 

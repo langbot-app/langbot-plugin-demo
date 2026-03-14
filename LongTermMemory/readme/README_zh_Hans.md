@@ -3,7 +3,7 @@
 LangBot 长期记忆插件，采用双层记忆设计：
 
 - L1 核心画像：注入到 system prompt
-- L2 情景记忆：通过 KnowledgeEngine 检索并注入
+- L2 情景记忆：通过向量检索召回后注入
 
 ## 作用
 
@@ -11,9 +11,95 @@ LangBot 长期记忆插件，采用双层记忆设计：
 - 提供 `recall_memory` 工具，用于主动检索情景记忆并使用受控过滤条件
 - 提供 `update_profile` 工具，用于更新稳定画像信息
 - 通过 EventListener 自动注入画像和当前说话人身份
-- 通过 KnowledgeEngine 在模型调用前检索相关情景记忆
+- 通过 EventListener 在模型调用前自动检索并注入相关情景记忆
 - 提供 `!memory` 命令用于查看和调试记忆状态
-- 提供 `!memory export` 命令，将所有 L1 画像导出为 JSON
+- 提供 `!memory export` 命令，将当前会话范围内的 L1 画像导出为 JSON
+
+## 整体设计
+
+这个插件的目标不是做一个“把所有历史对话都塞进上下文”的记忆系统，而是把长期记忆拆成两层，分别处理“稳定事实”和“具体经历”：
+
+- **L1 核心画像**：低频变化、相对稳定的信息，例如名字、偏好、身份、长期备注。
+- **L2 情景记忆**：带时间性和情境性的内容，例如最近做过什么、提过什么计划、发生过什么事件。
+
+这样拆分的原因是：
+
+- 稳定画像适合直接注入 system prompt，成本低、命中稳定。
+- 情景记忆数量会不断增长，不适合每轮都全量注入，更适合按 query 做检索召回。
+- Agent 对“稳定画像”和“事件记忆”的写入方式也不同，前者更适合结构化更新，后者更适合追加式记录。
+
+## 与 OpenClaw 这类个人助手记忆方案的区别
+
+最近不少 Agent 系统会讨论类似 OpenClaw 这样的记忆实现：把长期记忆主要做成用户可直接阅读和编辑的文本文件，例如 `MEMORY.md`，再配合摘要、反思和少量检索逻辑来完成“个人助手式”的长期记忆。
+
+这种方案有它明确的优点：
+
+- 记忆对用户完全透明，可直接检查和修改
+- 纯文本天然适合备份、同步、版本控制
+- 对单用户、单助手、强连续性的个人场景非常自然
+- 当记忆规模不大时，全文理解确实可能“足够好”
+
+但 LangBot 的长期记忆插件面对的不是完全相同的问题。我们更常见的运行场景是：
+
+- 一个 bot 同时服务多个群聊和私聊
+- 同一个插件实例要处理多个会话、多个说话人
+- 记忆不仅是“我和助手”的私人连续叙事，还包括群共享背景、当前说话人的稳定画像、以及会话级事件记忆
+- 系统要明确控制不同会话、不同 bot、不同说话人之间的隔离边界
+
+因此，我们没有直接采用“单一文本记忆文件作为长期记忆真相源”的方案，而是选择了更适合 LangBot 场景的分层设计。
+
+### OpenClaw 方案更像什么
+
+如果把它抽象一下，OpenClaw 更像是：
+
+- **面向单用户个人助手**
+- **以可读文本为长期记忆主形态**
+- **强调透明、可编辑、叙事连续性**
+- **默认假设记忆规模可控，且用户愿意直接参与维护**
+
+这非常适合“个人 AI 助手 / 日志伙伴 / 研究搭子”一类产品。
+
+### LangBot 插件为什么不直接这么做
+
+LangBot 的长期记忆插件更关注的是“多会话、多说话人、可隔离、可检索、可控注入”的运行条件。
+
+如果直接把长期记忆主形态做成类似 `MEMORY.md` 的单一文本文件，会很快遇到这些问题：
+
+- **隔离困难**
+  - 群 A、群 B、私聊 C 的记忆如何安全共存？
+  - 某个说话人的稳定画像如何从共享叙事文本里精确拆出来？
+- **注入粒度不稳定**
+  - system prompt 里需要的是稳定画像，不是整个时间线叙事
+  - 自动 recall 需要的是与当前 query 最相关的片段，而不是整本文本日记
+- **多用户边界不清晰**
+  - 在个人助手里，“用户”通常只有一个
+  - 在 LangBot 里，“当前说话人”“当前会话”“当前 bot”是三个都需要认真处理的维度
+- **主动检索与自动注入是两类不同需求**
+  - 稳定画像适合固定注入
+  - 情景记忆适合检索后注入
+  - 如果都揉成同一种文本记忆形态，工程上会变得很别扭
+
+### 我们当前设计的取舍
+
+所以 LongTermMemory 的设计，本质上是在做下面这个取舍：
+
+- **借鉴 OpenClaw 的地方**
+  - 承认“长期记忆不该只是黑盒向量索引”
+  - 重视可解释性、稳定画像、时间性记忆和长期行为调整
+  - 接受“不是所有记忆都应该一股脑塞进上下文”
+
+- **与 OpenClaw 不同的地方**
+  - 我们没有把文本日记作为唯一记忆主形态
+  - 我们把稳定画像和情景记忆显式拆层
+  - 我们优先解决多会话、多说话人、多 bot 的隔离问题
+  - 我们让 L2 记忆天然进入 LangBot 的 KB / 检索体系，而不是只靠全文理解
+
+可以把两者理解成：
+
+- OpenClaw 主要回答的是“个人助手如何拥有可读、可控、可反思的长期记忆”
+- LongTermMemory 主要回答的是“群聊 / 私聊混合场景下，bot 如何在安全隔离前提下拥有稳定画像与可检索经验记忆”
+
+这不是谁比谁“更先进”，而是产品目标不同导致的设计重心不同。
 
 ## 设计说明
 
@@ -25,6 +111,55 @@ LangBot 长期记忆插件，采用双层记忆设计：
 - 当前实现假设每个插件实例只维护一个 memory KB，并通过 metadata 做隔离
 
 当前实现是围绕现有 LangBot 和 SDK API 设计的。后续如果 LangBot 提供更明确的 memory API、session 身份 API 或 KB 注册 API，插件可以进一步简化，但现有架构本身不需要因此推翻。
+
+## 它是怎么工作的
+
+一次完整的长期记忆流程，大致分成四部分：
+
+### 1. L1 画像写入
+
+- Agent 通过 `update_profile` 工具写入稳定信息。
+- 数据写入插件存储（plugin storage），按 `session` 或 `speaker` 维度保存。
+- 这些画像不是向量数据，不进入知识库，而是以结构化 JSON 存储。
+
+### 2. L2 情景记忆写入
+
+- Agent 通过 `remember` 工具写入事件型记忆。
+- 记忆内容会带上时间、重要度、标签、scope 等 metadata。
+- 这些内容进入 LongTermMemory 的 KnowledgeEngine，经过 embedding 后写入向量库。
+
+### 3. 对话前自动注入
+
+- 在 `PromptPreProcessing` 阶段，EventListener 会先解析当前会话身份。
+- L1 部分：
+  - 读取 session profile
+  - 读取当前说话人的 speaker profile
+  - 把当前说话人身份信息一起注入到 `default_prompt`
+- L2 部分：
+  - 使用当前用户消息做一次情景记忆检索
+  - 命中的记忆以“事实数据”形式注入到 prompt
+
+也就是说，L1 和 L2 都是在模型真正回答前进入上下文，但注入方式不同：L1 走 system prompt，L2 走检索结果块。
+
+### 4. 主动检索与调试
+
+- 如果自动注入不足，Agent 还可以通过 `recall_memory` 工具主动检索记忆。
+- 开发或排障时，可以使用 `!memory`、`!memory profile`、`!memory search` 查看当前状态。
+- `!memory export` 只导出当前 scope 下的 L1 画像，方便做备份或迁移。
+
+## 与 AgenticRAG 的关系
+
+如果同时启用了 AgenticRAG：
+
+- LongTermMemory 会先把自己的 memory KB 从 naive RAG 预处理列表里移除。
+- L2 自动记忆召回仍由 LongTermMemory 自己完成。
+- 同一个 memory KB 仍然可以被 AgenticRAG 的 `query_knowledge` 工具主动访问，用于更深一步的 agentic 检索。
+
+这样设计的好处是：
+
+- 自动记忆召回不会和 naive RAG 重复
+- 长期记忆仍然保留“自动 recall + 主动 query”两条路径
+- 不依赖插件加载顺序来避免重复注入
 
 ## 为什么暂时不向 Agent 开放元数据过滤
 
@@ -49,6 +184,47 @@ LangBot 长期记忆插件，采用双层记忆设计：
 
 在当前部署模型下，这通常已经足够，因为插件实例一般会绑定在特定的 LangBot 运行环境或 bot 上。
 
+## 隔离规则细节
+
+这个插件里实际上有两套相关但不完全相同的“作用域”概念：
+
+- **session_key**：某次会话的逻辑标识，例如某个群、某个私聊。
+- **scope_key / user_key**：真正用于画像存储或 L2 检索隔离的键。
+
+### L1 画像怎么隔离
+
+L1 画像总是按当前会话范围保存：
+
+- `session profile`
+  - 对应当前会话共享画像
+  - 例如群聊共同背景、当前会话共享约定
+- `speaker profile`
+  - 对应当前说话人的稳定画像
+  - 例如某个成员的偏好、身份、长期备注
+
+因此，`!memory export` 导出的也是**当前 session_key 对应范围**下的画像，而不是整个插件实例里的全部画像。
+
+### L2 情景记忆怎么隔离
+
+L2 情景记忆在写入向量库时会带上隔离 metadata，检索时再按隔离规则过滤：
+
+- `session`
+  - 群 A 的记忆不会被群 B 召回
+  - 私聊 A 的记忆不会被私聊 B 召回
+- `bot`
+  - 同一个 bot 下的多个会话共享一套 L2 记忆
+  - 适合希望 bot 在不同会话之间共享长期经验的场景
+
+如果还带有 `sender_id`，插件也可以优先检索“当前说话人相关”的记忆，再回退到更宽的 scope。
+
+### 为什么 L1 和 L2 的隔离看起来不完全一样
+
+这是有意为之：
+
+- L1 更像“当前会话和当前说话人的稳定画像”，天然适合做精细的 session / speaker 级存储。
+- L2 更像“可检索的经验库”，更适合通过 metadata 过滤控制召回范围。
+- 这样既保留了 L1 的精确注入能力，也保留了 L2 的可扩展检索能力。
+
 ## 使用方法
 
 1. 安装并启用本插件。
@@ -65,22 +241,108 @@ LangBot 长期记忆插件，采用双层记忆设计：
 
 ## 导入与导出
 
-- **导出（L1 画像）：** 使用 `!memory export` 命令导出所有 session 画像和 speaker 画像，格式为 JSON，可复制保存用于备份或迁移。
+- **导出（L1 画像）：** 使用 `!memory export` 命令导出当前 `scope_key` 下的 session 画像和 speaker 画像，格式为 JSON，可复制保存用于备份或迁移。该命令不会跨 session / scope 导出其他会话的数据。
 - **导入（L2 情景记忆）：** 通过 LangBot 知识库前端界面上传 JSON 文件，批量导入情景记忆。
 - **L2 情景记忆暂不支持导出**，因为 SDK 未提供向量库遍历接口，仅 L1 画像支持导出。
 
+## 关键技术问答
+
+### Q1. 为什么 L1 和 L2 要分层，而不是统一存在向量库里？
+
+因为两类信息的访问模式完全不同：
+
+- L1 是稳定事实，适合每轮都稳定注入
+- L2 是事件型记忆，适合按 query 检索
+
+如果把两者都放进向量库：
+
+- 稳定画像会变得不稳定，容易漏召回
+- 每轮都查会浪费上下文和检索预算
+- 写入和更新语义也会变混乱
+
+### Q2. L2 记忆为什么不全量注入，而要检索？
+
+因为 L2 会不断增长。全量注入会带来几个直接问题：
+
+- prompt 很快膨胀
+- 噪声越来越大
+- 旧记忆会挤占真正相关的上下文
+
+所以当前策略是：
+
+- 自动召回一小部分最相关记忆
+- 不够时再让 Agent 通过 `recall_memory` 主动查
+
+### Q3. L2 记忆有时间衰退吗？
+
+有。
+
+L2 检索不是只看向量相似度，还会结合时间衰退做重排。越新的记忆通常权重越高，越旧的记忆权重会逐步下降。
+
+当前实现里使用的是“半衰期”思路：
+
+- 一条记忆在达到 `half_life_days` 时，时间权重衰减到约 50%
+- 越新的记忆越容易排在前面
+- 但旧记忆不会被直接删除，只是排序优势变弱
+
+这样做的目的不是“自动遗忘所有旧事”，而是让检索结果更符合“近期上下文优先”的使用直觉。
+
+### Q4. 旧记忆会不会彻底失效？
+
+不会自动彻底失效。
+
+时间衰退影响的是排序，不是硬删除。只要内容仍然足够相关，旧记忆仍可能被召回。
+
+真正删除通常发生在：
+
+- 你显式删除文档 / 知识库内容
+- 重建知识库
+- 替换插件实例或数据
+
+### Q5. `session` 和 `bot` 隔离模式怎么选？
+
+经验上可以这样理解：
+
+- 选 `session`
+  - 适合把每个群 / 私聊都当成独立人格上下文
+  - 更安全，串话风险更低
+- 选 `bot`
+  - 适合希望 bot 跨会话共享长期经验
+  - 召回面更大，但也更容易把别的会话经验带进来
+
+如果你不确定，默认优先 `session`。
+
+### Q6. 为什么 `!memory export` 只导出当前 scope？
+
+这是刻意的安全边界，不是功能没做完。
+
+如果默认能导出整个插件实例下的所有 L1 画像，就很容易发生跨会话、跨用户的数据泄漏。当前实现只允许导出当前 `scope_key` 下的数据，更符合“最小暴露面”的原则。
+
+### Q7. 为什么 L2 还不支持导出？
+
+核心原因是 SDK 目前没有提供“遍历整个向量库内容”的稳定接口。
+
+LongTermMemory 现在能可靠做到的是：
+
+- 写入 L2
+- 按条件检索 L2
+- 通过知识库导入 JSON 批量写入 L2
+
+但还不能安全、完整地把整库 L2 反向枚举出来。
+
+### Q8. 和 AgenticRAG 同时启用时会不会重复召回？
+
+当前设计就是为了解决这个问题：
+
+- LongTermMemory 会主动移除自己的 naive RAG 预处理
+- L2 自动 recall 由 LongTermMemory 自己完成
+- 如果模型还需要更深入查询，同一个 memory KB 还可以通过 AgenticRAG 主动查询
+
+所以它们是互补关系，不是简单叠加两次同样的召回。
+
 ## 组件
 
-- KnowledgeEngine: [`memory_engine.py`](/home/yhh/workspace/langbot-plugin-memory/components/knowledge_engine/memory_engine.py)
-- EventListener: [`memory_injector.py`](/home/yhh/workspace/langbot-plugin-memory/components/event_listener/memory_injector.py)
-- Tools: [`remember.py`](/home/yhh/workspace/langbot-plugin-memory/components/tools/remember.py), [`recall_memory.py`](/home/yhh/workspace/langbot-plugin-memory/components/tools/recall_memory.py), [`update_profile.py`](/home/yhh/workspace/langbot-plugin-memory/components/tools/update_profile.py)
-- Command: [`memory.py`](/home/yhh/workspace/langbot-plugin-memory/components/commands/memory.py)
-
-## 目前还缺什么
-
-和 `langbot-plugin-demo` 里的插件相比，这个插件之前主要缺的是用户可读文档：
-
-- 根目录 `README.md`
-- `readme/` 下的多语言说明
-
-其余核心文件基本齐全，包括 manifest、图标、tool YAML、command YAML 和 KnowledgeEngine schema。
+- KnowledgeEngine: [memory_engine.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/knowledge_engine/memory_engine.py)
+- EventListener: [memory_injector.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/event_listener/memory_injector.py)
+- Tools: [remember.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/tools/remember.py), [recall_memory.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/tools/recall_memory.py), [update_profile.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/tools/update_profile.py)
+- Command: [memory.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/commands/memory.py)

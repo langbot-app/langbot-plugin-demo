@@ -10,6 +10,19 @@ AgenticRAG exposes the knowledge bases configured for the current pipeline as an
   - `query`: retrieve relevant documents from one or more selected knowledge bases
 - Returns retrieval results as JSON so the agent can continue reasoning over them
 
+## Overall Design
+
+AgenticRAG is intentionally not a new RAG backend. It is a control-layer plugin that changes **who decides when retrieval should happen**.
+
+Instead of the runner always injecting knowledge automatically before the model responds, AgenticRAG shifts retrieval into the agent loop:
+
+- the model first decides whether retrieval is needed
+- the model can inspect available knowledge bases
+- the model can choose one KB or query several in parallel
+- retrieval only happens when the model explicitly asks for it
+
+This design exists to solve a specific problem: naive always-on retrieval is simple, but it also introduces noise, wasted context, and irrelevant chunks for many turns.
+
 ## Design
 
 This plugin is intentionally thin. It does not implement a new RAG backend. Instead, it wraps LangBot's built-in query-scoped knowledge retrieval APIs:
@@ -23,6 +36,38 @@ Although the underlying runtime can support metadata filters, this plugin does n
 
 Future versions may expose metadata filtering after the ecosystem has a more unified way to describe filterable fields and operators for each knowledge base.
 
+## How It Works
+
+An AgenticRAG request has four main stages:
+
+### 1. Disable naive retrieval
+
+During `PromptPreProcessing`, the plugin clears the runner's `_knowledge_base_uuids` so the normal naive pre-retrieval step is skipped.
+
+### 2. Inject retrieval policy into the system prompt
+
+At the same time, AgenticRAG injects an extra system prompt telling the model that:
+
+- configured KBs are the primary source of truth for in-scope facts
+- there is no automatic retrieval fallback
+- for factual, policy, procedural, product, and domain-specific questions, it should prefer `query_knowledge`
+
+This matters because tool descriptions alone are often not strong enough to reliably change model behavior.
+
+### 3. Let the model inspect and query KBs
+
+The agent can then use `query_knowledge` in two steps:
+
+- `action="list"` to see which KBs are available
+- `action="query"` to search one KB or several KBs in parallel
+
+For single-KB retrieval, the preferred parameter is `kb_id`.
+For multi-KB retrieval, use `kb_ids`.
+
+### 4. Return retrieval results as structured JSON
+
+The tool merges results, annotates them with `knowledge_base_id`, and returns JSON so the model can continue reasoning, tool use, or final answering.
+
 ## Retrieval Behavior
 
 When AgenticRAG is enabled, it disables the runner's automatic naive RAG pre-processing for the current pipeline.
@@ -31,7 +76,29 @@ When AgenticRAG is enabled, it disables the runner's automatic naive RAG pre-pro
 - Whether to query a knowledge base is now a deliberate model decision through `query_knowledge`
 - If the model does not call the tool, no KB content will be injected into context
 
-This reduces unconditional retrieval noise, but it also means tool prompting matters. The `query_knowledge` tool prompt is intentionally biased toward retrieval for factual, policy, procedural, product, and other domain-specific questions so the model prefers querying over guessing.
+This reduces unconditional retrieval noise, but it also means prompting matters. The current implementation therefore uses **both**:
+
+- a tool prompt on `query_knowledge`
+- an injected system prompt during `PromptPreProcessing`
+
+Together, they bias the model toward retrieval for factual, policy, procedural, product, and other domain-specific questions.
+
+## Why It Is Designed This Way
+
+This plugin is optimized for a specific tradeoff:
+
+- keep LangBot's existing KB and retrieval infrastructure
+- remove unnecessary always-on retrieval
+- let the model make explicit retrieval decisions
+- still keep retrieval behavior constrained to the current pipeline
+
+Compared with naive RAG, this design gives you:
+
+- less irrelevant context on turns that do not need KB access
+- better control over which KB is queried
+- room for iterative retrieval, re-querying, and multi-KB reasoning
+
+The downside is also real: if the model never calls the tool, no KB content appears. That is why the plugin explicitly adds retrieval-oriented prompting, instead of assuming the model will naturally choose retrieval often enough.
 
 ## Security Boundary
 
@@ -47,15 +114,15 @@ This means prompt injection alone should not allow the agent to query arbitrary 
 2. Configure one or more knowledge bases in the current pipeline's local agent settings.
 3. Let the agent call `query_knowledge`:
    - Start with `action="list"` to inspect available KBs
-   - Then call `action="query"` with either `kb_id` for one KB, or `kb_ids` for multiple KBs queried in parallel
+   - Then call `action="query"` with `kb_id` for one KB, or `kb_ids` for multiple KBs queried in parallel
    - Provide `query_text`, and optional `top_k` for the merged result count
 
 ## Parameters
 
 For `action="query"`, the tool currently accepts:
 
-- `kb_id`: target knowledge base UUID for single-KB retrieval
-- `kb_ids`: optional array of target knowledge base UUIDs for parallel multi-KB retrieval
+- `kb_id`: target knowledge base UUID for single-KB retrieval; preferred when querying exactly one KB
+- `kb_ids`: optional array of target knowledge base UUIDs for parallel multi-KB retrieval; use only when querying multiple KBs
 - `query_text`: retrieval query text
 - `top_k`: optional positive integer, default `5`, applied to the merged result set
 
@@ -70,12 +137,12 @@ If one KB query fails while others succeed, the tool returns a JSON object with 
 
 ## Prompting Intent
 
-The tool prompt is designed to communicate two things to the model:
+The prompting layer is designed to communicate two things to the model:
 
 - these knowledge bases are the authoritative source for in-scope information
 - no fallback automatic retrieval exists once AgenticRAG is enabled
 
-Without that guidance, an LLM may over-trust its pretrained knowledge and under-use retrieval. The current prompt therefore explicitly tells the model to query for uncertain or domain-specific questions and to prefer retrieval over unsupported recall.
+Without that guidance, an LLM may over-trust its pretrained knowledge and under-use retrieval. The current implementation therefore reinforces the same policy at both the system-prompt layer and the tool-prompt layer.
 
 ## Logging
 
