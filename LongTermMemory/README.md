@@ -187,7 +187,8 @@ In the current deployment model, this is generally sufficient because plugin ins
 
 There are two related but slightly different scope concepts in this plugin:
 
-- **session_key**: the logical conversation identity, such as one group chat or one private chat
+- **session_name**: the conversation identity passed through the current query / retrieval path, formatted as `{launcher_type}_{launcher_id}`
+- **session_key**: the plugin's internal L1 storage key. When `bot_uuid` is available, it becomes `{bot_uuid}:{launcher_type}_{launcher_id}`; otherwise it falls back to `{launcher_type}_{launcher_id}`
 - **scope_key / user_key**: the actual key used for profile storage or L2 retrieval isolation
 
 ### How L1 profiles are isolated
@@ -231,7 +232,8 @@ That is intentional:
 3. Configure:
    - `embedding_model_uuid`
    - `isolation`
-   - optional `max_results`
+   - optional `recency_half_life_days`
+   - optional `auto_recall_top_k`
 4. Let the agent use:
    - `remember` for events, plans, and episodic facts
    - `recall_memory` for active memory lookup when automatic recall is insufficient
@@ -304,7 +306,18 @@ That is a deliberate safety boundary.
 
 Allowing export of every L1 profile in the plugin instance would make cross-session data leakage much easier. Restricting export to the current scope follows a minimum-exposure principle.
 
-### Q7. Why is L2 export not supported yet?
+### Q7. What happens if the runtime does not expose `_knowledge_base_uuids` in query variables?
+
+Automatic memory injection still works, but the plugin cannot remove its memory KB from naive RAG pre-processing.
+
+That can lead to duplicate memory recall:
+
+- one copy injected by LongTermMemory itself
+- another copy recalled again by the runner's generic KB flow
+
+So this is not a full failure, but it can waste context and make the prompt noisier.
+
+### Q8. Why is L2 export not supported yet?
 
 Because the SDK still does not provide a stable way to enumerate the full vector store content.
 
@@ -316,7 +329,7 @@ Today LongTermMemory can reliably:
 
 But it still cannot safely reconstruct the entire L2 store as an export.
 
-### Q8. Will LongTermMemory and AgenticRAG duplicate recall when both are enabled?
+### Q9. Will LongTermMemory and AgenticRAG duplicate recall when both are enabled?
 
 No, that duplication is exactly what the current design avoids:
 

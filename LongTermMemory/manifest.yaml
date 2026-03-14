@@ -4,7 +4,7 @@ metadata:
   author: langbot-team
   name: LongTermMemory
   repository: 'https://github.com/langbot-app/langbot-plugin-demo'
-  version: 0.2.0
+  version: 0.2.1
   description:
     en_US: Long-term memory plugin for LangBot. Dual-layer architecture - L1 core profile (system prompt) + L2 episodic memory (RAG via vectorDB).
     zh_Hans: LangBot 长期记忆插件。双层架构 - L1 核心画像（system prompt）+ L2 情景记忆（向量检索）。

@@ -62,6 +62,7 @@ spec:
     - When multiple filters are provided together, they are typically combined as restrictive conditions.
     - Do not add filters unless they are clearly needed.
     - Start with only the semantic query whenever possible, then add at most one or two filters if you need to narrow the result set.
+    - When you are investigating conflicting memories, pay attention to timestamps and explicit correction/update records. Prefer newer explicit corrections over older conflicting statements.
 
     Do not invent raw metadata filters outside these parameters.
 

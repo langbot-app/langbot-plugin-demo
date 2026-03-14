@@ -5,6 +5,8 @@ import json
 import time
 import uuid
 import logging
+from collections import OrderedDict
+from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -17,6 +19,12 @@ def _default_profile() -> dict[str, Any]:
         "preferences": [],
         "notes": "",
         "updated_at": "",
+        "profile_slots": {
+            "traits": {},
+            "preferences": {},
+        },
+        "freeform_traits": [],
+        "freeform_preferences": [],
     }
 
 
@@ -28,8 +36,11 @@ class MemoryStore:
     """
 
     _PROFILE_FIELDS = ("name", "traits", "preferences", "notes")
+    _STRUCTURED_FIELDS = ("traits", "preferences")
     _MAX_PROFILE_CACHE_SIZE = 256
     _MAX_NOTES_LENGTH = 2000
+    _MAX_SLOT_HISTORY = 8
+    _RECENT_SLOT_CHANGE_DAYS = 30
 
     def __init__(
         self,
@@ -41,8 +52,8 @@ class MemoryStore:
         self.max_profile_traits = max_profile_traits
         self.max_profile_preferences = max_profile_preferences
         self._kb_config_cache: dict[str, dict[str, Any]] | None = None
-        # L1 profile cache: user_key -> (monotonic_timestamp, profile_dict)
-        self._profile_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+        # L1 profile cache: storage_key -> (monotonic_timestamp, profile_dict)
+        self._profile_cache: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
         self._PROFILE_CACHE_TTL = 30  # seconds
 
     @staticmethod
@@ -70,9 +81,374 @@ class MemoryStore:
             parts.append(f"Traits: {', '.join(profile['traits'])}")
         if profile.get("preferences"):
             parts.append(f"Preferences: {', '.join(profile['preferences'])}")
+        for hint in MemoryStore._format_recent_slot_change_hints(profile, max_items=2):
+            parts.append(hint)
         if profile.get("notes"):
             parts.append(f"Notes: {profile['notes']}")
         return "\n".join(parts)
+
+    @staticmethod
+    def _now_timestamp() -> str:
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    @staticmethod
+    def normalize_timestamp(value: str) -> str:
+        text = str(value).strip()
+        if not text:
+            raise ValueError("timestamp cannot be empty")
+
+        try:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid timestamp '{text}'. Use ISO-8601 such as 2026-03-14T00:00:00Z"
+            ) from exc
+
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    @classmethod
+    def normalize_optional_timestamp(cls, value: str) -> str:
+        text = str(value).strip()
+        if not text:
+            return ""
+        return cls.normalize_timestamp(text)
+
+    @staticmethod
+    def _normalize_slot_key(value: str) -> str:
+        return "_".join(str(value).strip().lower().split())
+
+    @staticmethod
+    def _normalize_text_list(values: Any) -> list[str]:
+        if not isinstance(values, list):
+            return []
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in values:
+            text = str(item).strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            normalized.append(text)
+        return normalized
+
+    @classmethod
+    def _normalize_slot_group(cls, raw_group: Any) -> dict[str, dict[str, Any]]:
+        if not isinstance(raw_group, dict):
+            return {}
+
+        normalized: dict[str, dict[str, Any]] = {}
+        for raw_key, raw_slot in raw_group.items():
+            slot_key = cls._normalize_slot_key(str(raw_key))
+            if not slot_key or not isinstance(raw_slot, dict):
+                continue
+
+            value = str(raw_slot.get("value", "") or "").strip()
+            updated_at = str(raw_slot.get("updated_at", "") or "")
+            history_items = raw_slot.get("history", [])
+            history: list[dict[str, str]] = []
+            if isinstance(history_items, list):
+                for item in history_items:
+                    if not isinstance(item, dict):
+                        continue
+                    hist_value = str(item.get("value", "") or "").strip()
+                    if not hist_value:
+                        continue
+                    history.append({
+                        "value": hist_value,
+                        "timestamp": str(item.get("timestamp", "") or ""),
+                        "status": str(item.get("status", "") or "superseded"),
+                        "reason": str(item.get("reason", "") or ""),
+                    })
+
+            confidence = raw_slot.get("confidence")
+            if isinstance(confidence, (int, float)):
+                confidence_value: float | None = max(0.0, min(1.0, float(confidence)))
+            else:
+                confidence_value = None
+
+            if not value and not history:
+                continue
+
+            normalized[slot_key] = {
+                "value": value,
+                "updated_at": updated_at,
+                "history": history[-cls._MAX_SLOT_HISTORY:],
+                "confidence": confidence_value,
+            }
+
+        return normalized
+
+    def _profile_field_limit(self, field: str) -> int:
+        return (
+            self.max_profile_traits
+            if field == "traits"
+            else self.max_profile_preferences
+        )
+
+    def _compose_field_values(
+        self,
+        profile: dict[str, Any],
+        field: str,
+    ) -> list[str]:
+        slot_group = profile.get("profile_slots", {}).get(field, {})
+        slot_values: list[str] = []
+        if isinstance(slot_group, dict):
+            slot_entries = sorted(
+                slot_group.values(),
+                key=lambda slot: str(slot.get("updated_at", "") or ""),
+                reverse=True,
+            )
+            for slot in slot_entries:
+                current_value = str(slot.get("value", "") or "").strip()
+                if current_value and current_value not in slot_values:
+                    slot_values.append(current_value)
+
+        freeform_key = f"freeform_{field}"
+        values = list(slot_values)
+        for item in profile.get(freeform_key, []):
+            if item not in values:
+                values.append(item)
+
+        return values[:self._profile_field_limit(field)]
+
+    def _normalize_profile(self, profile: Any) -> dict[str, Any]:
+        raw_profile = profile if isinstance(profile, dict) else {}
+        normalized = _default_profile()
+
+        normalized["name"] = str(raw_profile.get("name", "") or "").strip()
+        normalized["notes"] = str(raw_profile.get("notes", "") or "")[:self._MAX_NOTES_LENGTH]
+        normalized["updated_at"] = str(raw_profile.get("updated_at", "") or "")
+
+        for field in self._STRUCTURED_FIELDS:
+            freeform_key = f"freeform_{field}"
+            source_values = raw_profile.get(freeform_key)
+            if source_values is None:
+                source_values = raw_profile.get(field, [])
+            normalized[freeform_key] = self._normalize_text_list(source_values)[
+                : self._profile_field_limit(field)
+            ]
+
+        raw_slots = raw_profile.get("profile_slots", {})
+        normalized["profile_slots"] = {
+            "traits": self._normalize_slot_group(
+                raw_slots.get("traits") if isinstance(raw_slots, dict) else {}
+            ),
+            "preferences": self._normalize_slot_group(
+                raw_slots.get("preferences") if isinstance(raw_slots, dict) else {}
+            ),
+        }
+
+        for field in self._STRUCTURED_FIELDS:
+            normalized[field] = self._compose_field_values(normalized, field)
+
+        return normalized
+
+    @classmethod
+    def _append_slot_history(
+        cls,
+        slot: dict[str, Any],
+        value: str,
+        timestamp: str,
+        status: str,
+        reason: str,
+    ) -> None:
+        text = str(value).strip()
+        if not text:
+            return
+
+        history = slot.get("history", [])
+        if not isinstance(history, list):
+            history = []
+
+        history.append({
+            "value": text,
+            "timestamp": timestamp,
+            "status": status,
+            "reason": reason,
+        })
+        slot["history"] = history[-cls._MAX_SLOT_HISTORY:]
+
+    def _clear_slot_group_current_values(
+        self,
+        profile: dict[str, Any],
+        field: str,
+        reason: str,
+    ) -> None:
+        now = self._now_timestamp()
+        slot_group = profile.get("profile_slots", {}).get(field, {})
+        if not isinstance(slot_group, dict):
+            return
+        for slot in slot_group.values():
+            current_value = str(slot.get("value", "") or "").strip()
+            if not current_value:
+                continue
+            self._append_slot_history(
+                slot,
+                current_value,
+                str(slot.get("updated_at", "") or now),
+                "superseded",
+                reason,
+            )
+            slot["value"] = ""
+            slot["updated_at"] = now
+
+    def _remove_matching_slot_values(
+        self,
+        profile: dict[str, Any],
+        field: str,
+        value: str,
+    ) -> None:
+        target = str(value).strip()
+        if not target:
+            return
+        now = self._now_timestamp()
+        slot_group = profile.get("profile_slots", {}).get(field, {})
+        if not isinstance(slot_group, dict):
+            return
+        for slot in slot_group.values():
+            current_value = str(slot.get("value", "") or "").strip()
+            if current_value != target:
+                continue
+            self._append_slot_history(
+                slot,
+                current_value,
+                str(slot.get("updated_at", "") or now),
+                "removed",
+                "freeform_remove",
+            )
+            slot["value"] = ""
+            slot["updated_at"] = now
+
+    def _update_structured_slot(
+        self,
+        profile: dict[str, Any],
+        field: str,
+        action: str,
+        value: str,
+        fact_key: str,
+        previous_value: str = "",
+    ) -> None:
+        slot_group = profile.setdefault("profile_slots", {}).setdefault(field, {})
+        slot_key = self._normalize_slot_key(fact_key)
+        if not slot_key:
+            return
+
+        slot = slot_group.setdefault(slot_key, {
+            "value": "",
+            "updated_at": "",
+            "history": [],
+            "confidence": None,
+        })
+        current_value = str(slot.get("value", "") or "").strip()
+        current_updated_at = str(slot.get("updated_at", "") or "")
+        new_value = str(value).strip()
+        previous_text = str(previous_value).strip()
+        now = self._now_timestamp()
+
+        if action == "remove":
+            if current_value:
+                self._append_slot_history(
+                    slot,
+                    current_value,
+                    current_updated_at or now,
+                    "removed",
+                    "explicit_remove",
+                )
+            slot["value"] = ""
+            slot["updated_at"] = now
+            return
+
+        if not new_value:
+            return
+
+        if not current_value and previous_text and previous_text != new_value:
+            self._append_slot_history(
+                slot,
+                previous_text,
+                now,
+                "superseded",
+                "provided_previous_value",
+            )
+
+        if current_value and current_value != new_value:
+            self._append_slot_history(
+                slot,
+                current_value,
+                current_updated_at or now,
+                "superseded",
+                "profile_update",
+            )
+
+        if current_value != new_value:
+            slot["value"] = new_value
+            slot["updated_at"] = now
+        elif not current_updated_at:
+            slot["updated_at"] = now
+
+    @classmethod
+    def _slot_updated_within_days(
+        cls,
+        slot: dict[str, Any],
+        max_days: int,
+    ) -> bool:
+        updated_at = str(slot.get("updated_at", "") or "")
+        if not updated_at:
+            return False
+        try:
+            ts = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+            now = datetime.now(timezone.utc)
+            age_days = max(0.0, (now - ts).total_seconds() / 86400.0)
+        except (ValueError, TypeError):
+            return False
+        return age_days <= max_days
+
+    @classmethod
+    def _format_recent_slot_change_hints(
+        cls,
+        profile: dict[str, Any],
+        max_items: int = 2,
+    ) -> list[str]:
+        slot_root = profile.get("profile_slots", {})
+        if not isinstance(slot_root, dict):
+            return []
+
+        changes: list[tuple[str, str, str, str, str]] = []
+        for field in cls._STRUCTURED_FIELDS:
+            slot_group = slot_root.get(field, {})
+            if not isinstance(slot_group, dict):
+                continue
+            for slot_key, slot in slot_group.items():
+                history = slot.get("history", [])
+                current_value = str(slot.get("value", "") or "").strip()
+                if not current_value or not isinstance(history, list) or not history:
+                    continue
+                if not cls._slot_updated_within_days(
+                    slot, cls._RECENT_SLOT_CHANGE_DAYS,
+                ):
+                    continue
+                previous_value = str(history[-1].get("value", "") or "").strip()
+                if not previous_value or previous_value == current_value:
+                    continue
+                changes.append((
+                    str(slot.get("updated_at", "") or ""),
+                    field,
+                    slot_key,
+                    current_value,
+                    previous_value,
+                ))
+
+        changes.sort(key=lambda item: item[0], reverse=True)
+        hints: list[str] = []
+        for _updated_at, field, slot_key, current_value, previous_value in changes[:max_items]:
+            label = "Preference" if field == "preferences" else "Trait"
+            hints.append(
+                f"Recent {label.lower()} update ({slot_key}): now {current_value}; previously {previous_value}"
+            )
+        return hints
 
     # ======================== key helpers ========================
 
@@ -214,29 +590,47 @@ class MemoryStore:
         data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         await self.plugin.set_plugin_storage(key, data)
 
-    async def _load_profile_by_storage_key(self, storage_key: str) -> dict[str, Any]:
+    def _get_cached_profile(self, storage_key: str) -> dict[str, Any] | None:
         now = time.monotonic()
         cached = self._profile_cache.get(storage_key)
-        if cached and now - cached[0] < self._PROFILE_CACHE_TTL:
-            return cached[1]
+        if not cached:
+            return None
+
+        cached_at, profile = cached
+        if now - cached_at >= self._PROFILE_CACHE_TTL:
+            self._profile_cache.pop(storage_key, None)
+            return None
+
+        self._profile_cache.move_to_end(storage_key)
+        return profile
+
+    def _set_cached_profile(self, storage_key: str, profile: dict[str, Any]) -> None:
+        self._profile_cache[storage_key] = (time.monotonic(), profile)
+        self._profile_cache.move_to_end(storage_key)
+        while len(self._profile_cache) > self._MAX_PROFILE_CACHE_SIZE:
+            self._profile_cache.popitem(last=False)
+
+    async def _load_profile_by_storage_key(self, storage_key: str) -> dict[str, Any]:
+        cached = self._get_cached_profile(storage_key)
+        if cached is not None:
+            return cached
 
         profile = await self._read_json(storage_key)
         if not profile:
             profile = _default_profile()
             await self._write_json(storage_key, profile)
-        if len(self._profile_cache) >= self._MAX_PROFILE_CACHE_SIZE:
-            self._profile_cache.clear()
-        self._profile_cache[storage_key] = (now, profile)
+        profile = self._normalize_profile(profile)
+        self._set_cached_profile(storage_key, profile)
         return profile
 
     async def _save_profile_by_storage_key(
         self, storage_key: str, profile: dict[str, Any]
-    ) -> None:
-        profile["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    ) -> dict[str, Any]:
+        profile = self._normalize_profile(profile)
+        profile["updated_at"] = self._now_timestamp()
         await self._write_json(storage_key, profile)
-        if len(self._profile_cache) >= self._MAX_PROFILE_CACHE_SIZE:
-            self._profile_cache.clear()
-        self._profile_cache[storage_key] = (time.monotonic(), profile)
+        self._set_cached_profile(storage_key, profile)
+        return profile
 
     async def load_session_profile(self, scope_key: str) -> dict[str, Any]:
         return await self._load_profile_by_storage_key(
@@ -258,6 +652,8 @@ class MemoryStore:
         field: str,
         action: str,
         value: str,
+        fact_key: str = "",
+        previous_value: str = "",
     ) -> dict[str, Any]:
         profile = copy.deepcopy(
             await self._load_profile_by_storage_key(storage_key)
@@ -265,18 +661,45 @@ class MemoryStore:
 
         if field == "name":
             profile["name"] = value
-        elif field in ("traits", "preferences"):
-            items: list[str] = profile.get(field, [])
-            if action == "add":
+        elif field in self._STRUCTURED_FIELDS:
+            freeform_key = f"freeform_{field}"
+            items: list[str] = self._normalize_text_list(profile.get(freeform_key, []))
+            if fact_key:
+                slot_key = self._normalize_slot_key(fact_key)
+                old_slot = profile.get("profile_slots", {}).get(field, {}).get(slot_key, {})
+                old_slot_value = str(old_slot.get("value", "") or "").strip()
+                self._update_structured_slot(
+                    profile,
+                    field,
+                    action,
+                    value,
+                    fact_key,
+                    previous_value,
+                )
+                new_slot = profile.get("profile_slots", {}).get(field, {}).get(slot_key, {})
+                new_slot_value = str(new_slot.get("value", "") or "").strip()
+                profile[freeform_key] = [
+                    item for item in items
+                    if item not in {
+                        old_slot_value,
+                        new_slot_value,
+                        str(previous_value).strip(),
+                    }
+                ]
+            elif action == "add":
                 if value not in items:
                     items.append(value)
-                    max_len = self.max_profile_traits if field == "traits" else self.max_profile_preferences
-                    items = items[-max_len:]
-                profile[field] = items
+                    items = items[-self._profile_field_limit(field):]
+                profile[freeform_key] = items
             elif action == "remove":
-                profile[field] = [i for i in items if i != value]
+                profile[freeform_key] = [i for i in items if i != value]
+                self._remove_matching_slot_values(profile, field, value)
             elif action == "set":
-                profile[field] = [value]
+                profile[freeform_key] = [value]
+                self._clear_slot_group_current_values(
+                    profile, field, "field_set_reset",
+                )
+            profile[field] = self._compose_field_values(profile, field)
         elif field == "notes":
             if action == "set":
                 profile["notes"] = value[:self._MAX_NOTES_LENGTH]
@@ -293,7 +716,7 @@ class MemoryStore:
             elif action == "remove":
                 profile["notes"] = ""
 
-        await self._save_profile_by_storage_key(storage_key, profile)
+        profile = await self._save_profile_by_storage_key(storage_key, profile)
         return profile
 
     async def update_session_profile_field(
@@ -302,12 +725,16 @@ class MemoryStore:
         field: str,
         action: str,
         value: str,
+        fact_key: str = "",
+        previous_value: str = "",
     ) -> dict[str, Any]:
         return await self._update_profile_field_by_storage_key(
             self._session_profile_key(scope_key),
             field,
             action,
             value,
+            fact_key,
+            previous_value,
         )
 
     async def update_speaker_profile_field(
@@ -317,12 +744,16 @@ class MemoryStore:
         field: str,
         action: str,
         value: str,
+        fact_key: str = "",
+        previous_value: str = "",
     ) -> dict[str, Any]:
         return await self._update_profile_field_by_storage_key(
             self._speaker_profile_key(scope_key, sender_id),
             field,
             action,
             value,
+            fact_key,
+            previous_value,
         )
 
     async def clear_session_profile(self, scope_key: str) -> None:
@@ -354,15 +785,12 @@ class MemoryStore:
 
         for key in keys:
             if key == session_storage_key:
-                profile = await self._read_json(key)
+                profile = self._normalize_profile(await self._read_json(key))
                 if profile and self.has_profile_data(profile):
                     entry: dict[str, Any] = {
                         "type": "session",
                         "scope_key": scope_key,
-                        "profile": {
-                            f: profile.get(f, _default_profile()[f])
-                            for f in self._PROFILE_FIELDS
-                        },
+                        "profile": copy.deepcopy(profile),
                     }
                     profiles.append(entry)
 
@@ -370,16 +798,13 @@ class MemoryStore:
                 sender_id = key[len(speaker_prefix):]
                 if not sender_id:
                     continue
-                profile = await self._read_json(key)
+                profile = self._normalize_profile(await self._read_json(key))
                 if profile and self.has_profile_data(profile):
                     entry = {
                         "type": "speaker",
                         "scope_key": scope_key,
                         "sender_id": sender_id,
-                        "profile": {
-                            f: profile.get(f, _default_profile()[f])
-                            for f in self._PROFILE_FIELDS
-                        },
+                        "profile": copy.deepcopy(profile),
                     }
                     profiles.append(entry)
 
@@ -497,9 +922,9 @@ class MemoryStore:
         if time_after or time_before:
             time_filter: dict[str, str] = {}
             if time_after:
-                time_filter["$gte"] = time_after
+                time_filter["$gte"] = self.normalize_timestamp(time_after)
             if time_before:
-                time_filter["$lte"] = time_before
+                time_filter["$lte"] = self.normalize_timestamp(time_before)
             filters["timestamp"] = time_filter
         if importance_min is not None:
             # importance is stored as a string ("1"-"5") in vector DB metadata;
@@ -567,6 +992,8 @@ class MemoryStore:
             parts.append(f"- Traits: {', '.join(profile['traits'])}")
         if profile.get("preferences"):
             parts.append(f"- Preferences: {', '.join(profile['preferences'])}")
+        for hint in MemoryStore._format_recent_slot_change_hints(profile, max_items=3):
+            parts.append(f"- {hint}")
         if profile.get("notes"):
             parts.append(f"- Notes: {profile['notes']}")
         if profile.get("updated_at"):

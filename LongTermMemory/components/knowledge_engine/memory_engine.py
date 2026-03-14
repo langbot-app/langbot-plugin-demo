@@ -80,6 +80,78 @@ class LongTermMemoryEngine(KnowledgeEngine):
         except (ValueError, TypeError):
             return similarity * 0.5
 
+    @staticmethod
+    def _parse_importance(metadata: dict[str, Any]) -> int:
+        raw = metadata.get("importance", "2")
+        try:
+            return max(1, min(5, int(raw)))
+        except (TypeError, ValueError):
+            return 2
+
+    @staticmethod
+    def _importance_weight(importance: int) -> float:
+        # Importance should influence ranking, but not overpower semantic match.
+        # The weights keep importance as a secondary signal.
+        return {
+            1: 0.9,
+            2: 1.0,
+            3: 1.08,
+            4: 1.16,
+            5: 1.24,
+        }.get(importance, 1.0)
+
+    @staticmethod
+    def _speaker_match_weight(
+        metadata: dict[str, Any],
+        current_sender_id: str,
+    ) -> float:
+        if not current_sender_id:
+            return 1.0
+        if str(metadata.get("sender_id", "") or "") == current_sender_id:
+            return 1.12
+        return 1.0
+
+    @staticmethod
+    def _has_update_signal(metadata: dict[str, Any]) -> bool:
+        raw_tags = str(metadata.get("tags", "") or "")
+        tags = {
+            item.strip().lower()
+            for item in raw_tags.split(",")
+            if item.strip()
+        }
+        return bool(tags & {
+            "correction",
+            "clarification",
+            "profile-update",
+            "preference-change",
+            "fact-update",
+            "更正",
+            "修正",
+            "纠正",
+            "偏好变化",
+        })
+
+    @staticmethod
+    def _recency_hint(timestamp_str: str) -> str:
+        if not timestamp_str:
+            return "unknown"
+        try:
+            ts = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+            now = datetime.now(timezone.utc)
+            age_days = max(0.0, (now - ts).total_seconds() / 86400.0)
+        except (ValueError, TypeError):
+            return "unknown"
+
+        if age_days < 1:
+            return "fresh"
+        if age_days < 7:
+            return "recent"
+        if age_days < 30:
+            return "still-relevant"
+        if age_days < 90:
+            return "older"
+        return "old"
+
     # ================================================================
     # retrieve - called by LocalAgentRunner before LLM invocation
     # ================================================================
@@ -176,8 +248,19 @@ class LongTermMemoryEngine(KnowledgeEngine):
         half_life = float(settings.get("recency_half_life_days", 30))
         for r in results:
             sim = r.get("score") or (1.0 - r.get("distance", 1.0))
-            ts = r.get("metadata", {}).get("timestamp", "")
-            r["_final_score"] = self._time_decay_score(float(sim), ts, half_life)
+            metadata = r.get("metadata", {})
+            ts = metadata.get("timestamp", "")
+            importance = self._parse_importance(metadata)
+            time_score = self._time_decay_score(float(sim), ts, half_life)
+            importance_weight = self._importance_weight(importance)
+            speaker_weight = self._speaker_match_weight(metadata, sender_id)
+            update_weight = 1.08 if self._has_update_signal(metadata) else 1.0
+            final_score = time_score * importance_weight * speaker_weight * update_weight
+            r["_final_score"] = max(0.0, min(1.0, final_score))
+            r["_recency_hint"] = self._recency_hint(ts)
+            r["_importance"] = importance
+            r["_speaker_match"] = speaker_weight > 1.0
+            r["_has_update_signal"] = update_weight > 1.0
 
         results.sort(key=lambda r: r["_final_score"], reverse=True)
         results = results[:top_k]
@@ -193,10 +276,18 @@ class LongTermMemoryEngine(KnowledgeEngine):
             meta = r.get("metadata", {})
             content = meta.get("content", "")
             timestamp = meta.get("timestamp", "")
-            importance = meta.get("importance", "2")
+            importance = str(r.get("_importance", self._parse_importance(meta)))
             tags = meta.get("tags", "")
+            hints = [f"importance:{importance}"]
+            recency_hint = r.get("_recency_hint", "unknown")
+            if recency_hint != "unknown":
+                hints.append(f"recency:{recency_hint}")
+            if r.get("_speaker_match"):
+                hints.append("speaker:current")
+            if r.get("_has_update_signal"):
+                hints.append("signal:update")
 
-            display = f"[{timestamp}] (importance:{importance})"
+            display = f"[{timestamp}] ({', '.join(hints)})"
             if tags:
                 display += f" [{tags}]"
             # Wrap content in data markers to reduce prompt-injection risk.
@@ -286,9 +377,20 @@ class LongTermMemoryEngine(KnowledgeEngine):
 
             tags = mem.get("tags", [])
             importance = mem.get("importance", 2)
-            timestamp = mem.get("timestamp", time.strftime(
-                "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
-            ))
+            try:
+                raw_timestamp = mem.get("timestamp", "")
+                if raw_timestamp:
+                    timestamp = self.plugin.memory_store.normalize_timestamp(
+                        str(raw_timestamp)
+                    )
+                else:
+                    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            except ValueError as exc:
+                return IngestionResult(
+                    document_id=doc_id,
+                    status=DocumentStatus.FAILED,
+                    error_message=str(exc),
+                )
             user_key = mem.get("user_key", "imported")
 
             mid = uuid_mod.uuid4().hex[:12]

@@ -39,6 +39,14 @@ class UpdateProfile(Tool):
             return "speaker"
         return "session"
 
+    @staticmethod
+    def _normalize_fact_key(value: Any) -> str:
+        if value is None or value == "":
+            return ""
+        if not isinstance(value, str):
+            return "__invalid__"
+        return " ".join(value.strip().split())
+
     async def call(
         self,
         params: dict[str, Any],
@@ -51,12 +59,16 @@ class UpdateProfile(Tool):
         action = params.get("action", "")
         value = params.get("value", "")
         scope = self._normalize_scope(params.get("scope", ""))
+        fact_key = self._normalize_fact_key(params.get("fact_key", ""))
+        previous_value = params.get("previous_value", "")
         logger.info(
-            "[LongTermMemory] update_profile called: query_id=%s field=%s action=%s scope=%s",
+            "[LongTermMemory] update_profile called: query_id=%s field=%s action=%s scope=%s fact_key=%s has_previous_value=%s",
             query_id,
             field,
             action,
             scope,
+            fact_key,
+            bool(previous_value),
         )
 
         if not all([field, action, value]):
@@ -70,6 +82,17 @@ class UpdateProfile(Tool):
 
         if scope == "__invalid__":
             return "Error: invalid scope. Use 'session' or 'speaker'."
+
+        if fact_key == "__invalid__":
+            return "Error: fact_key must be a string."
+
+        if fact_key and field not in ("traits", "preferences"):
+            return "Error: fact_key is only supported for 'traits' and 'preferences'."
+
+        if previous_value is None:
+            previous_value = ""
+        if not isinstance(previous_value, str):
+            return "Error: previous_value must be a string."
 
         api = QueryBasedAPIProxy(
             query_id=query_id,
@@ -108,6 +131,8 @@ class UpdateProfile(Tool):
                 field=field,
                 action=action,
                 value=value,
+                fact_key=fact_key,
+                previous_value=previous_value.strip(),
             )
         else:
             profile = await store.update_session_profile_field(
@@ -115,6 +140,8 @@ class UpdateProfile(Tool):
                 field=field,
                 action=action,
                 value=value,
+                fact_key=fact_key,
+                previous_value=previous_value.strip(),
             )
 
         logger.info(

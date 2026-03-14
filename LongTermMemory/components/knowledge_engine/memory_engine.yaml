@@ -41,6 +41,28 @@ spec:
             zh_Hans: 全局共享
       default: session
 
+    - name: recency_half_life_days
+      label:
+        en_US: Recency Half-Life Days
+        zh_Hans: 时效半衰期天数
+      description:
+        en_US: Controls how quickly older episodic memories lose ranking weight during automatic recall.
+        zh_Hans: 控制自动召回时旧情景记忆的时效衰减速度。
+      type: integer
+      required: false
+      default: 30
+
+    - name: auto_recall_top_k
+      label:
+        en_US: Auto Recall Top K
+        zh_Hans: 自动召回条数
+      description:
+        en_US: Number of episodic memories injected automatically before model invocation.
+        zh_Hans: 模型调用前自动注入的情景记忆条数。
+      type: integer
+      required: false
+      default: 3
+
   retrieval_schema:
     - name: top_k
       label:

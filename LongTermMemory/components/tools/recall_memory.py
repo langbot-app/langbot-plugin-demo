@@ -109,19 +109,22 @@ class RecallMemory(Tool):
             time_before.strip(),
             len(query),
         )
-        episodes = await store.search_episodes(
-            collection_id=kb_id,
-            embedding_model_uuid=embedding_model_uuid,
-            query=query.strip(),
-            user_key=user_key,
-            top_k=top_k,
-            sender_id=speaker_id.strip(),
-            sender_name=speaker_name.strip(),
-            time_after=time_after.strip(),
-            time_before=time_before.strip(),
-            importance_min=importance_min,
-            source=source.strip(),
-        )
+        try:
+            episodes = await store.search_episodes(
+                collection_id=kb_id,
+                embedding_model_uuid=embedding_model_uuid,
+                query=query.strip(),
+                user_key=user_key,
+                top_k=top_k,
+                sender_id=speaker_id.strip(),
+                sender_name=speaker_name.strip(),
+                time_after=time_after.strip(),
+                time_before=time_before.strip(),
+                importance_min=importance_min,
+                source=source.strip(),
+            )
+        except ValueError as exc:
+            return f"Error: {exc}"
 
         if not episodes:
             logger.info(

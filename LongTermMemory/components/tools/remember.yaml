@@ -45,6 +45,17 @@ spec:
     - Name, job title, personality traits → update_profile
     - Communication preferences → update_profile
 
+    If the user explicitly corrects, retracts, or revises an earlier statement:
+    - store the correction as an episodic memory with clear wording
+    - describe the new statement as a correction, not as an unrelated new fact
+    - when appropriate, add tags such as ["correction"], ["profile-update"], or ["preference-change"]
+    - if the correction changes the user's current stable profile, also update that profile through "update_profile"
+    - when updating a stable preference or trait that may change later, prefer giving update_profile a reusable fact_key such as "coffee_preference"
+    - if the correction explicitly replaces an earlier stable fact, and the earlier value is known, also pass it as previous_value to update_profile
+
+    Example correction memory:
+    - "Alice corrected a previous preference statement and said she actually does not like coffee."
+
     Parameters:
     - content (required): What to remember. Be concise and factual. Always attribute to the speaker.
     - tags (optional): Category tags like ["travel", "work"].
