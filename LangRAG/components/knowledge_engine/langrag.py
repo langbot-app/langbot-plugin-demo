@@ -75,6 +75,71 @@ class LangRAG(KnowledgeEngine):
         )
         return len(texts)
 
+    async def _expand_context(
+        self,
+        results: list[dict],
+        collection_id: str,
+        window: int,
+    ) -> None:
+        """Expand each result with adjacent chunks from the same document.
+
+        For each hit, looks up chunks at chunk_index ± 1..window in the same
+        document and appends their text to the result's metadata as
+        ``context_before`` and ``context_after``.
+
+        Requires the vector store to support ``vector_get_by_ids``.  If the
+        method is unavailable or fails, this is a no-op.
+        """
+        get_by_ids = getattr(self.plugin, "vector_get_by_ids", None)
+        if not callable(get_by_ids):
+            return
+
+        ids_to_fetch: set[str] = set()
+        # Map result → adjacent IDs needed
+        for res in results:
+            meta = res.get("metadata", {})
+            doc_id = meta.get("document_id", "")
+            chunk_idx = meta.get("chunk_index")
+            if doc_id and chunk_idx is not None:
+                for offset in range(1, window + 1):
+                    if chunk_idx - offset >= 0:
+                        ids_to_fetch.add(f"{doc_id}_{chunk_idx - offset}")
+                    ids_to_fetch.add(f"{doc_id}_{chunk_idx + offset}")
+
+        if not ids_to_fetch:
+            return
+
+        adjacent = await get_by_ids(
+            collection_id=collection_id, ids=list(ids_to_fetch)
+        )
+        # Build lookup: id → text
+        adj_map: dict[str, str] = {}
+        for item in adjacent:
+            item_id = item.get("id", "")
+            item_text = item.get("metadata", {}).get("text", "")
+            if item_id and item_text:
+                adj_map[item_id] = item_text
+
+        # Attach context to results
+        for res in results:
+            meta = res.get("metadata", {})
+            doc_id = meta.get("document_id", "")
+            chunk_idx = meta.get("chunk_index")
+            if doc_id and chunk_idx is not None:
+                before_parts = []
+                after_parts = []
+                for offset in range(1, window + 1):
+                    before_id = f"{doc_id}_{chunk_idx - offset}"
+                    after_id = f"{doc_id}_{chunk_idx + offset}"
+                    if before_id in adj_map:
+                        before_parts.insert(0, adj_map[before_id])
+                    if after_id in adj_map:
+                        after_parts.append(adj_map[after_id])
+                if before_parts:
+                    meta["context_before"] = "\n".join(before_parts)
+                if after_parts:
+                    meta["context_after"] = "\n".join(after_parts)
+
     # ========== Core Methods ==========
 
     async def ingest(self, context: IngestionContext) -> IngestionResult:
@@ -107,12 +172,31 @@ class LangRAG(KnowledgeEngine):
 
         try:
             # 2. Parse file content (prefer pre-parsed content from external Parser plugin)
+            sections = None
+            doc_metadata = None
             if context.parsed_content and context.parsed_content.text:
                 text_content = context.parsed_content.text
                 logger.info(
                     f"Using pre-parsed content from external parser for {filename}"
                 )
+                # Extract structured sections and metadata if available
+                if context.parsed_content.sections:
+                    sections = context.parsed_content.sections
+                    logger.info(
+                        f"Found {len(sections)} structured sections from parser"
+                    )
+                if context.parsed_content.metadata:
+                    doc_metadata = context.parsed_content.metadata
+                    logger.info(
+                        f"Found document metadata from parser: "
+                        f"{[k for k in doc_metadata if k != 'images']}"
+                    )
             else:
+                logger.warning(
+                    f"No external parser content for {filename}; "
+                    "falling back to internal FileParser. Consider configuring an "
+                    "external parser (e.g. GeneralParsers) for better results."
+                )
                 parser = FileParser()
                 text_content = await parser.parse(content_bytes, filename)
 
@@ -150,6 +234,8 @@ class LangRAG(KnowledgeEngine):
                 filename,
                 context.creation_settings,
                 plugin=self.plugin,
+                sections=sections,
+                doc_metadata=doc_metadata,
             ):
                 pending_texts.extend(batch_texts)
                 pending_ids.extend(batch_ids)
@@ -266,10 +352,50 @@ class LangRAG(KnowledgeEngine):
             f"(fetch_k={fetch_k})"
         )
 
+        # C1: Heading hit weighting — boost results whose heading_path
+        # contains query keywords.  Each keyword hit multiplies the distance
+        # by 0.9, improving the result's ranking.
+        query_keywords = [w for w in query.lower().split() if len(w) >= 2]
+        if query_keywords:
+            for res in results:
+                heading_path = (
+                    res.get("metadata", {}).get("heading_path", "") or ""
+                ).lower()
+                if not heading_path:
+                    continue
+                distance = res.get("distance")
+                if distance is not None and isinstance(distance, (int, float)):
+                    for kw in query_keywords:
+                        if kw in heading_path:
+                            distance *= 0.9
+                    res["distance"] = distance
+            # Re-sort by distance (lower is better) after weighting
+            results.sort(
+                key=lambda r: (
+                    r.get("distance")
+                    if isinstance(r.get("distance"), (int, float))
+                    else float("inf")
+                )
+            )
+
+        # C2: Context window — attempt to fetch adjacent chunks from the same
+        # document to provide surrounding context.  Only works when the vector
+        # store supports ``vector_get_by_ids`` (gracefully skipped otherwise).
+        context_window = context.retrieval_settings.get("context_window", 0)
+        if context_window and context_window > 0:
+            try:
+                await self._expand_context(results, collection_id, context_window)
+            except Exception as e:
+                logger.debug(
+                    f"Context window expansion skipped (vector_get_by_ids "
+                    f"not supported or failed): {e}"
+                )
+
         # Format results
         entries: list[RetrievalResultEntry] = []
         for res in results:
-            content_text = res.get("metadata", {}).get("text", "")
+            meta = res.get("metadata", {})
+            content_text = meta.get("text", "")
             raw_score = res.get("score")
             distance = res.get("distance")
             if distance is None and raw_score is not None:
@@ -277,14 +403,35 @@ class LangRAG(KnowledgeEngine):
                 # distance under the score field.
                 distance = raw_score
 
-            doc_name = res.get("metadata", {}).get("document_name", "")
+            doc_name = meta.get("document_name", "")
+            page = meta.get("page")
+            heading_path = meta.get("heading_path", "")
+
+            # Build structured reference string
+            ref_parts = [doc_name]
+            if page is not None:
+                ref_parts.append(f"p.{page}")
+            if heading_path:
+                ref_parts.append(f'"{heading_path}"')
+            reference = "[" + ", ".join(ref_parts) + "]" if ref_parts else ""
+
+            content_entry: dict = {
+                "type": "text",
+                "text": content_text,
+                "file_name": doc_name,
+            }
+            if page is not None:
+                content_entry["page"] = page
+            if heading_path:
+                content_entry["heading_path"] = heading_path
+            if reference:
+                content_entry["reference"] = reference
+
             entries.append(
                 RetrievalResultEntry(
                     id=res["id"],
-                    content=[
-                        {"type": "text", "text": content_text, "file_name": doc_name}
-                    ],
-                    metadata=res.get("metadata", {}),
+                    content=[content_entry],
+                    metadata=meta,
                     score=raw_score,
                     distance=distance,
                 )

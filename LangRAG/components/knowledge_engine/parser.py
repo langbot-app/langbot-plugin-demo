@@ -1,3 +1,15 @@
+"""DEPRECATED: Internal file parser — fallback only.
+
+This parser provides basic text extraction for cases where no external Parser
+plugin (e.g. GeneralParsers) is configured.  It lacks section splitting,
+metadata extraction, table-aware chunking, and many other features available
+in GeneralParsers.
+
+New features should NOT be added here.  Instead, invest in GeneralParsers
+or a dedicated parser plugin.  This module will be removed in a future
+version once external parser adoption is widespread.
+"""
+
 from __future__ import annotations
 
 import io

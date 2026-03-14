@@ -4,13 +4,23 @@ Uses two-level chunking: large parent chunks for context richness, small child
 chunks for precise embedding matches.  Child chunks are embedded, but the
 metadata ``text`` field stores the parent chunk so that retrieval automatically
 returns full context.
+
+When *sections* are provided, each section naturally maps to a parent chunk.
+Sections shorter than *parent_chunk_size* become a single parent; longer ones
+are split.  Child chunks are then created from each parent as usual.
 """
+
+from __future__ import annotations
 
 import logging
 from collections.abc import AsyncGenerator
 
 from .base import IndexStrategy
-from ..chunker import chunk_text, DEFAULT_CHUNK_OVERLAP
+from ..chunker import (
+    chunk_text,
+    chunk_sections,
+    DEFAULT_CHUNK_OVERLAP,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +39,10 @@ class ParentChildStrategy(IndexStrategy):
       so search results automatically carry richer context.
     - ``postprocess_results`` deduplicates by parent, keeping only the
       highest-scoring child per parent.
+
+    When *sections* are provided, sections are used as natural parent
+    boundaries via section-aware chunking at parent_chunk_size, then each
+    parent is further split into children.
     """
 
     async def build_chunks_and_metadata(
@@ -38,6 +52,9 @@ class ParentChildStrategy(IndexStrategy):
         filename: str,
         creation_settings: dict,
         plugin=None,
+        *,
+        sections: list | None = None,
+        doc_metadata: dict | None = None,
     ) -> AsyncGenerator[tuple[list[str], list[str], list[dict]], None]:
         parent_size = (
             creation_settings.get("parent_chunk_size") or DEFAULT_PARENT_CHUNK_SIZE
@@ -46,30 +63,59 @@ class ParentChildStrategy(IndexStrategy):
             creation_settings.get("child_chunk_size") or DEFAULT_CHILD_CHUNK_SIZE
         )
         overlap = creation_settings.get("overlap") or DEFAULT_CHUNK_OVERLAP
-
-        # Split into parent chunks (no overlap between parents)
-        parent_chunks = chunk_text(text, parent_size, 0)
+        doc_fields = self._build_doc_meta_fields(doc_metadata)
 
         texts_to_embed: list[str] = []
         ids: list[str] = []
         metadatas: list[dict] = []
 
-        for p_idx, parent in enumerate(parent_chunks):
-            child_chunks = chunk_text(parent, child_size, overlap)
-            for c_idx, child in enumerate(child_chunks):
-                texts_to_embed.append(child)
-                ids.append(f"{doc_id}_p{p_idx}_c{c_idx}")
-                metadatas.append(
-                    {
+        if sections:
+            # Section-aware: use sections as parent boundaries
+            parent_chunks = chunk_sections(sections, parent_size, 0)
+
+            for p_idx, parent_sc in enumerate(parent_chunks):
+                parent_text = parent_sc.text
+                child_chunks = chunk_text(parent_text, child_size, overlap)
+                for c_idx, child in enumerate(child_chunks):
+                    texts_to_embed.append(child)
+                    ids.append(f"{doc_id}_p{p_idx}_c{c_idx}")
+                    meta = {
                         "file_id": doc_id,
                         "document_id": doc_id,
                         "document_name": filename,
                         "parent_index": p_idx,
                         "child_text": child,
-                        "text": parent,  # retrieval returns parent context
+                        "text": parent_text,
+                        "index_type": "parent_child",
+                        "heading": parent_sc.heading,
+                        "level": parent_sc.level,
+                        "page": parent_sc.page,
+                        "heading_path": parent_sc.heading_path,
+                        "has_table": parent_sc.has_table,
+                        "section_index": parent_sc.section_index,
+                    }
+                    meta.update(doc_fields)
+                    metadatas.append(meta)
+        else:
+            # Fallback: flat text chunking (original behaviour)
+            parent_chunks_text = chunk_text(text, parent_size, 0)
+
+            for p_idx, parent in enumerate(parent_chunks_text):
+                child_chunks = chunk_text(parent, child_size, overlap)
+                for c_idx, child in enumerate(child_chunks):
+                    texts_to_embed.append(child)
+                    ids.append(f"{doc_id}_p{p_idx}_c{c_idx}")
+                    meta = {
+                        "file_id": doc_id,
+                        "document_id": doc_id,
+                        "document_name": filename,
+                        "parent_index": p_idx,
+                        "child_text": child,
+                        "text": parent,
                         "index_type": "parent_child",
                     }
-                )
+                    meta.update(doc_fields)
+                    metadatas.append(meta)
 
         yield texts_to_embed, ids, metadatas
 

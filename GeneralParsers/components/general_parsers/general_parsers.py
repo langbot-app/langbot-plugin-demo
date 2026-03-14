@@ -1,18 +1,12 @@
 from __future__ import annotations
 
-import io
 import re
-import asyncio
 import logging
-from typing import Callable, Any
 
-import base64
-
-import fitz
-from docx import Document
-import chardet
-import markdown
-from bs4 import BeautifulSoup
+from .parsers.pdf import parse_pdf
+from .parsers.docx import parse_docx
+from .parsers.html_text import parse_txt, parse_md, parse_html
+from .utils import decode_text, find_page
 
 from langbot_plugin.api.definition.components.parser.parser import Parser
 from langbot_plugin.api.entities.builtin.rag.models import (
@@ -23,6 +17,16 @@ from langbot_plugin.api.entities.builtin.rag.models import (
 
 
 logger = logging.getLogger(__name__)
+
+PARSERS = {
+    'pdf': parse_pdf,
+    'docx': parse_docx,
+    'doc': None,  # not supported
+    'txt': parse_txt,
+    'md': parse_md,
+    'html': parse_html,
+    'htm': parse_html,
+}
 
 
 class GeneralParsers(Parser):
@@ -50,22 +54,51 @@ class GeneralParsers(Parser):
         else:
             extension = ''
 
-        parser_method = getattr(self, f'_parse_{extension}', None)
+        # Build invoke_vision callback if a vision model is configured
+        invoke_vision = None
+        config = self.plugin.get_config()
+        vision_model_uuid = config.get('vision_llm_model_uuid')
+        if vision_model_uuid:
+            async def invoke_vision(image_b64: str, prompt: str) -> str:
+                from langbot_plugin.api.entities.builtin.provider.message import (
+                    Message, ContentElement,
+                )
+                resp = await self.plugin.invoke_llm(
+                    vision_model_uuid,
+                    [Message(role='user', content=[
+                        ContentElement.from_image_base64(image_b64),
+                        ContentElement.from_text(prompt),
+                    ])]
+                )
+                if isinstance(resp.content, str):
+                    return resp.content
+                return ''.join(
+                    e.text for e in resp.content if e.type == 'text' and e.text
+                )
+
         extra_metadata = {}
-        if parser_method is None:
-            logger.warning(f'Unsupported file format: {extension} for {filename}, trying as text')
-            text = self._decode_text(file_bytes)
+        if extension in PARSERS:
+            parser_func = PARSERS[extension]
+            if parser_func is None:
+                logger.warning(f'Unsupported file format: {extension} for {filename}')
+                text = ''
+            else:
+                try:
+                    if extension == 'pdf':
+                        result = await parser_func(file_bytes, filename, invoke_vision=invoke_vision)
+                    else:
+                        result = await parser_func(file_bytes, filename)
+                    # PDF/DOCX parsers return (text, extra_metadata), others return str
+                    if isinstance(result, tuple):
+                        text, extra_metadata = result
+                    else:
+                        text = result
+                except Exception as e:
+                    logger.error(f'Failed to parse {extension} file {filename}: {e}')
+                    text = None
         else:
-            try:
-                result = await parser_method(file_bytes, filename)
-                # PDF parser returns (text, extra_metadata), others return str
-                if isinstance(result, tuple):
-                    text, extra_metadata = result
-                else:
-                    text = result
-            except Exception as e:
-                logger.error(f'Failed to parse {extension} file {filename}: {e}')
-                text = None
+            logger.warning(f'Unsupported file format: {extension} for {filename}, trying as text')
+            text = decode_text(file_bytes)
 
         if text is None:
             text = ''
@@ -207,7 +240,7 @@ class GeneralParsers(Parser):
             content_end = deduped[i + 1][0] if i + 1 < len(deduped) else len(text)
             content = text[content_start:content_end].strip()
             if content:
-                page = _find_page(start, page_positions) if page_positions else None
+                page = find_page(start, page_positions) if page_positions else None
                 sections.append(
                     TextSection(
                         content=content,
@@ -220,7 +253,7 @@ class GeneralParsers(Parser):
         # Include text before first heading if any
         preamble = text[: deduped[0][0]].strip()
         if preamble:
-            page = _find_page(0, page_positions) if page_positions else None
+            page = find_page(0, page_positions) if page_positions else None
             sections.insert(
                 0,
                 TextSection(
@@ -232,372 +265,3 @@ class GeneralParsers(Parser):
             )
 
         return sections
-
-    # ========== Helpers ==========
-
-    @staticmethod
-    async def _run_sync(sync_func: Callable, *args: Any, **kwargs: Any) -> Any:
-        """Run a synchronous function in a thread to avoid blocking the event loop."""
-        return await asyncio.to_thread(sync_func, *args, **kwargs)
-
-    @staticmethod
-    def _decode_text(file_bytes: bytes) -> str:
-        """Decode bytes to text with encoding detection."""
-        detected = chardet.detect(file_bytes)
-        encoding = detected['encoding'] or 'utf-8'
-        return file_bytes.decode(encoding, errors='ignore')
-
-    # ========== Format-Specific Parsers ==========
-
-    async def _parse_txt(self, file_bytes: bytes, filename: str) -> str:
-        logger.info(f'Parsing TXT file: {filename}')
-        return self._decode_text(file_bytes)
-
-    async def _parse_pdf(self, file_bytes: bytes, filename: str) -> tuple[str, dict]:
-        """Parse PDF using PyMuPDF with table extraction, image extraction, and position-aware text.
-
-        Returns:
-            A tuple of (text, extra_metadata) where extra_metadata contains extracted images.
-        """
-        logger.info(f'Parsing PDF file: {filename}')
-
-        def _sync():
-            doc = fitz.open(stream=file_bytes, filetype='pdf')
-            page_count = len(doc)
-            page_texts = []
-            images = []
-            scanned_pages = []
-            total_word_count = 0
-            has_tables = False
-
-            for page_idx, page in enumerate(doc):
-                page_num = page_idx + 1
-
-                # --- Collect table regions to avoid duplicating table text ---
-                tables = page.find_tables()
-                if tables:
-                    has_tables = True
-                table_rects = []
-                table_entries = []  # (y0, x0, markdown_str)
-                for table in tables:
-                    bbox = fitz.Rect(table.bbox)
-                    table_rects.append(bbox)
-                    md = _pymupdf_table_to_markdown(table)
-                    if md:
-                        table_entries.append((bbox.y0, bbox.x0, md))
-
-                # --- Extract text blocks with position info ---
-                text_dict = page.get_text('dict', flags=fitz.TEXT_PRESERVE_WHITESPACE)
-                text_entries = []  # (y0, x0, text_str)
-                for block in text_dict.get('blocks', []):
-                    if block['type'] != 0:  # skip image blocks
-                        continue
-                    block_rect = fitz.Rect(block['bbox'])
-
-                    # Skip text blocks that overlap significantly with a table region
-                    in_table = False
-                    for tr in table_rects:
-                        overlap = block_rect & tr  # intersection
-                        if not overlap.is_empty and overlap.height > block_rect.height * 0.5:
-                            in_table = True
-                            break
-                    if in_table:
-                        continue
-
-                    lines_text = []
-                    for line in block.get('lines', []):
-                        spans_text = ''.join(span['text'] for span in line.get('spans', []))
-                        stripped = spans_text.strip()
-                        if stripped:
-                            lines_text.append(stripped)
-                    if lines_text:
-                        text_entries.append((block['bbox'][1], block['bbox'][0], '\n'.join(lines_text)))
-
-                # --- Merge text and table entries by vertical position ---
-                all_entries = []
-                for y0, x0, text in text_entries:
-                    all_entries.append((y0, x0, 'text', text))
-                for y0, x0, md in table_entries:
-                    all_entries.append((y0, x0, 'table', md))
-                all_entries.sort(key=lambda e: (e[0], e[1]))
-
-                page_parts = []
-                for _, _, kind, content in all_entries:
-                    if kind == 'table':
-                        page_parts.append('\n' + content + '\n')
-                    else:
-                        page_parts.append(content)
-
-                # --- Extract images ---
-                for img_idx, img_info in enumerate(page.get_images(full=True)):
-                    xref = img_info[0]
-                    try:
-                        pix = fitz.Pixmap(doc, xref)
-                        # Convert CMYK / other color spaces to RGB
-                        if pix.n - pix.alpha > 3:
-                            pix = fitz.Pixmap(fitz.csRGB, pix)
-                        img_bytes = pix.tobytes('png')
-                        img_b64 = base64.b64encode(img_bytes).decode('ascii')
-                        images.append({
-                            'page': page_num,
-                            'index': img_idx,
-                            'width': pix.width,
-                            'height': pix.height,
-                            'base64': img_b64,
-                        })
-                        page_parts.append(f'[图片: 第{page_num}页-图片{img_idx + 1}]')
-                    except Exception as e:
-                        logger.warning(f'Failed to extract image xref={xref} on page {page_num}: {e}')
-
-                # --- Detect scanned pages and count words ---
-                plain_text = page.get_text('text').strip()
-                total_word_count += len(plain_text)
-                page_has_images = len(page.get_images(full=True)) > 0
-                if len(plain_text) < 30 and page_has_images:
-                    scanned_pages.append(page_num)
-
-                if page_parts:
-                    page_texts.append(f'<!-- PAGE:{page_num} -->\n' + '\n'.join(page_parts))
-
-            doc.close()
-
-            full_text = '\n\n'.join(page_texts)
-            extra_metadata = {
-                'page_count': page_count,
-                'word_count': total_word_count,
-                'has_tables': has_tables,
-                'has_scanned_pages': bool(scanned_pages),
-            }
-            if scanned_pages:
-                extra_metadata['scanned_pages'] = scanned_pages
-            if images:
-                extra_metadata['images'] = images
-            return full_text, extra_metadata
-
-        return await self._run_sync(_sync)
-
-    async def _parse_docx(self, file_bytes: bytes, filename: str) -> tuple[str, dict]:
-        """Parse DOCX with table extraction, heading styles, list recognition,
-        and document-flow-order output.
-
-        Returns:
-            A tuple of (text, extra_metadata).
-        """
-        logger.info(f'Parsing DOCX file: {filename}')
-
-        def _sync():
-            from docx.table import Table as DocxTable
-            from docx.text.paragraph import Paragraph
-
-            doc = Document(io.BytesIO(file_bytes))
-            parts = []
-            has_tables = False
-            word_count = 0
-
-            for block in doc.element.body:
-                tag = block.tag
-
-                if tag.endswith('}p'):
-                    para = Paragraph(block, doc)
-                    text = para.text.strip()
-                    if not text:
-                        continue
-
-                    style_name = para.style.name if para.style else ''
-
-                    # Heading recognition: "Heading 1" through "Heading 6"
-                    heading_match = re.match(r'Heading\s*(\d+)', style_name, re.IGNORECASE)
-                    if heading_match:
-                        level = min(int(heading_match.group(1)), 6)
-                        parts.append('#' * level + ' ' + text)
-                    elif 'List' in style_name:
-                        parts.append('* ' + text)
-                    else:
-                        parts.append(text)
-
-                    word_count += len(text)
-
-                elif tag.endswith('}tbl'):
-                    has_tables = True
-                    try:
-                        table = DocxTable(block, doc)
-                        md = _docx_table_to_markdown(table)
-                        if md:
-                            parts.append('\n' + md + '\n')
-                    except Exception as e:
-                        logger.warning(f'Failed to extract DOCX table: {e}')
-
-            full_text = '\n'.join(parts)
-            extra_metadata = {
-                'word_count': word_count,
-                'has_tables': has_tables,
-            }
-            return full_text, extra_metadata
-
-        return await self._run_sync(_sync)
-
-    async def _parse_doc(self, file_bytes: bytes, filename: str) -> str:
-        raise NotImplementedError('Direct .doc parsing not supported. Please convert to .docx first.')
-
-    async def _parse_md(self, file_bytes: bytes, filename: str) -> str:
-        logger.info(f'Parsing Markdown file: {filename}')
-
-        def _sync():
-            md_content = file_bytes.decode('utf-8', errors='ignore')
-            html_content = markdown.markdown(
-                md_content, extensions=['extra', 'codehilite', 'tables', 'toc', 'fenced_code']
-            )
-            soup = BeautifulSoup(html_content, 'html.parser')
-            text_parts = []
-            for element in soup.children:
-                if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
-                    level = int(element.name[1])
-                    text_parts.append('#' * level + ' ' + element.get_text().strip())
-                elif element.name == 'p':
-                    text = element.get_text().strip()
-                    if text:
-                        text_parts.append(text)
-                elif element.name in ['ul', 'ol']:
-                    for li in element.find_all('li'):
-                        text_parts.append(f'* {li.get_text().strip()}')
-                elif element.name == 'pre':
-                    code_block = element.get_text().strip()
-                    if code_block:
-                        text_parts.append(f'```\n{code_block}\n```')
-                elif element.name == 'table':
-                    table_str = _extract_table(element)
-                    if table_str:
-                        text_parts.append(table_str)
-                elif element.name:
-                    text = element.get_text(separator=' ', strip=True)
-                    if text:
-                        text_parts.append(text)
-            return re.sub(r'\n\s*\n', '\n\n', '\n'.join(text_parts)).strip()
-
-        return await self._run_sync(_sync)
-
-    async def _parse_html(self, file_bytes: bytes, filename: str) -> str:
-        logger.info(f'Parsing HTML file: {filename}')
-
-        def _sync():
-            html_content = file_bytes.decode('utf-8', errors='ignore')
-            soup = BeautifulSoup(html_content, 'html.parser')
-            for s in soup(['script', 'style']):
-                s.decompose()
-            text_parts = []
-            container = soup.body if soup.body else soup
-            for element in container.children:
-                if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
-                    level = int(element.name[1])
-                    text_parts.append('#' * level + ' ' + element.get_text().strip())
-                elif element.name == 'p':
-                    text = element.get_text().strip()
-                    if text:
-                        text_parts.append(text)
-                elif element.name in ['ul', 'ol']:
-                    for li in element.find_all('li'):
-                        text = li.get_text().strip()
-                        if text:
-                            text_parts.append(f'* {text}')
-                elif element.name == 'table':
-                    table_str = _extract_table(element)
-                    if table_str:
-                        text_parts.append(table_str)
-                elif element.name:
-                    text = element.get_text(separator=' ', strip=True)
-                    if text:
-                        text_parts.append(text)
-            return re.sub(r'\n\s*\n', '\n\n', '\n'.join(text_parts)).strip()
-
-        return await self._run_sync(_sync)
-
-
-def _find_page(position: int, page_positions: list[tuple[int, int]]) -> int | None:
-    """Find which page a text position belongs to.
-
-    page_positions is a sorted list of (char_position, page_number).
-    Returns the page number for the largest marker position <= the given position.
-    """
-    result = None
-    for pos, page in page_positions:
-        if pos <= position:
-            result = page
-        else:
-            break
-    return result
-
-
-def _extract_table(table_element) -> str:
-    """Convert a BeautifulSoup table element into a Markdown table string."""
-    headers = [th.get_text().strip() for th in table_element.find_all('th')]
-    rows = []
-    for tr in table_element.find_all('tr'):
-        cells = [td.get_text().strip() for td in tr.find_all('td')]
-        if cells:
-            rows.append(cells)
-
-    if not headers and not rows:
-        return ''
-
-    lines = []
-    if headers:
-        lines.append(' | '.join(headers))
-        lines.append(' | '.join(['---'] * len(headers)))
-
-    for row_cells in rows:
-        padded = row_cells + [''] * (len(headers) - len(row_cells)) if headers else row_cells
-        lines.append(' | '.join(padded))
-
-    return '\n'.join(lines)
-
-
-def _pymupdf_table_to_markdown(table) -> str:
-    """Convert a PyMuPDF Table object into a Markdown table string."""
-    data = table.extract()
-    if not data:
-        return ''
-
-    # Clean cell values: replace None with empty string, strip whitespace
-    cleaned = []
-    for row in data:
-        cleaned.append([str(cell).strip() if cell is not None else '' for cell in row])
-
-    if not cleaned:
-        return ''
-
-    # First row as header
-    header = cleaned[0]
-    lines = [
-        '| ' + ' | '.join(header) + ' |',
-        '| ' + ' | '.join(['---'] * len(header)) + ' |',
-    ]
-    for row in cleaned[1:]:
-        # Pad or trim row to match header length
-        padded = row + [''] * (len(header) - len(row)) if len(row) < len(header) else row[:len(header)]
-        lines.append('| ' + ' | '.join(padded) + ' |')
-
-    return '\n'.join(lines)
-
-
-def _docx_table_to_markdown(table) -> str:
-    """Convert a python-docx Table object into a Markdown table string."""
-    rows_data = []
-    for row in table.rows:
-        cells = [cell.text.strip() for cell in row.cells]
-        rows_data.append(cells)
-
-    if not rows_data:
-        return ''
-
-    # First row as header
-    header = rows_data[0]
-    col_count = len(header)
-    lines = [
-        '| ' + ' | '.join(header) + ' |',
-        '| ' + ' | '.join(['---'] * col_count) + ' |',
-    ]
-    for row in rows_data[1:]:
-        padded = row + [''] * (col_count - len(row)) if len(row) < col_count else row[:col_count]
-        lines.append('| ' + ' | '.join(padded) + ' |')
-
-    return '\n'.join(lines)

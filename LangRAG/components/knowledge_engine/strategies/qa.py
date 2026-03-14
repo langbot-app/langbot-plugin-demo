@@ -8,7 +8,12 @@ questions, yielding better semantic alignment than raw-chunk matching.
 
 This strategy yields Q&A pairs incrementally (per chunk) so that the ingest
 pipeline can embed and upsert concurrently with ongoing LLM generation.
+
+When *sections* are provided, section-aware chunks are used instead of flat
+text chunks, preserving heading/page metadata in each Q&A pair's metadata.
 """
+
+from __future__ import annotations
 
 import json
 import logging
@@ -18,7 +23,7 @@ from collections.abc import AsyncGenerator
 from langbot_plugin.api.entities.builtin.provider.message import Message
 
 from .base import IndexStrategy
-from ..chunker import chunk_text, DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP
+from ..chunker import chunk_text, chunk_sections, DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +101,9 @@ class QAStrategy(IndexStrategy):
 
     Yields Q&A pairs per chunk so the ingest pipeline can start embedding
     while the next chunk's LLM call is in flight.
+
+    When *sections* are provided, section-aware chunks are used, and each
+    Q&A pair inherits the chunk's heading/page/heading_path metadata.
     """
 
     async def build_chunks_and_metadata(
@@ -105,6 +113,9 @@ class QAStrategy(IndexStrategy):
         filename: str,
         creation_settings: dict,
         plugin=None,
+        *,
+        sections: list | None = None,
+        doc_metadata: dict | None = None,
     ) -> AsyncGenerator[tuple[list[str], list[str], list[dict]], None]:
         if plugin is None:
             raise RuntimeError("QAStrategy requires a plugin reference for LLM calls")
@@ -115,21 +126,42 @@ class QAStrategy(IndexStrategy):
         n_questions = (
             creation_settings.get("questions_per_chunk") or DEFAULT_QUESTIONS_PER_CHUNK
         )
+        doc_fields = self._build_doc_meta_fields(doc_metadata)
 
         if not qa_llm_uuid:
             raise ValueError(
                 "QA Index requires 'qa_llm_model_uuid' in creation settings"
             )
 
-        chunks = chunk_text(text, chunk_size, overlap)
+        # Build chunk list — section-aware or flat
+        if sections:
+            s_chunks = chunk_sections(sections, chunk_size, overlap)
+            # Wrap into a uniform structure for the loop below
+            chunk_items = [
+                {
+                    "text": sc.text,
+                    "heading": sc.heading,
+                    "level": sc.level,
+                    "page": sc.page,
+                    "heading_path": sc.heading_path,
+                    "has_table": sc.has_table,
+                    "section_index": sc.section_index,
+                }
+                for sc in s_chunks
+            ]
+        else:
+            flat_chunks = chunk_text(text, chunk_size, overlap)
+            chunk_items = [{"text": c} for c in flat_chunks]
+
         logger.info(
-            f"[QA] Generating Q&A pairs: {len(chunks)} chunks × "
+            f"[QA] Generating Q&A pairs: {len(chunk_items)} chunks × "
             f"{n_questions} questions, LLM={qa_llm_uuid}"
         )
 
         total_qa = 0
 
-        for chunk_idx, chunk in enumerate(chunks):
+        for chunk_idx, chunk_info in enumerate(chunk_items):
+            chunk = chunk_info["text"]
             prompt = QA_GENERATION_PROMPT.format(n=n_questions, chunk_text=chunk)
             messages = [Message(role="user", content=prompt)]
 
@@ -151,7 +183,7 @@ class QAStrategy(IndexStrategy):
                 continue
 
             logger.info(
-                f"[QA] Chunk {chunk_idx}/{len(chunks) - 1}: "
+                f"[QA] Chunk {chunk_idx}/{len(chunk_items) - 1}: "
                 f"generated {len(qa_pairs)} Q&A pairs"
             )
 
@@ -163,25 +195,33 @@ class QAStrategy(IndexStrategy):
                 vec_id = f"{doc_id}_{chunk_idx}_qa{qa_idx}"
                 questions.append(question)
                 ids.append(vec_id)
-                metadatas.append(
-                    {
-                        "file_id": doc_id,
-                        "document_id": doc_id,
-                        "document_name": filename,
-                        "chunk_index": chunk_idx,
-                        "qa_index": qa_idx,
-                        "question": question,
-                        "answer": answer,
-                        "text": chunk,  # return full chunk as retrieval context
-                        "source_chunk": chunk,
-                        "index_type": "qa",
-                    }
-                )
+                meta = {
+                    "file_id": doc_id,
+                    "document_id": doc_id,
+                    "document_name": filename,
+                    "chunk_index": chunk_idx,
+                    "qa_index": qa_idx,
+                    "question": question,
+                    "answer": answer,
+                    "text": chunk,
+                    "source_chunk": chunk,
+                    "index_type": "qa",
+                }
+                # Add section metadata if available
+                if "heading" in chunk_info:
+                    meta["heading"] = chunk_info["heading"]
+                    meta["level"] = chunk_info["level"]
+                    meta["page"] = chunk_info["page"]
+                    meta["heading_path"] = chunk_info["heading_path"]
+                    meta["has_table"] = chunk_info["has_table"]
+                    meta["section_index"] = chunk_info["section_index"]
+                meta.update(doc_fields)
+                metadatas.append(meta)
 
             total_qa += len(questions)
             yield questions, ids, metadatas
 
-        logger.info(f"[QA] Total: {total_qa} Q&A pairs from {len(chunks)} chunks")
+        logger.info(f"[QA] Total: {total_qa} Q&A pairs from {len(chunk_items)} chunks")
 
     def postprocess_results(self, results: list[dict], top_k: int) -> list[dict]:
         """Deduplicate by source chunk, keeping the highest-scoring QA per chunk."""
