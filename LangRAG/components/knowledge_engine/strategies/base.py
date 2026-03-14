@@ -1,5 +1,7 @@
 """Abstract base class for index strategies."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
 
@@ -19,6 +21,9 @@ class IndexStrategy(ABC):
         filename: str,
         creation_settings: dict,
         plugin=None,
+        *,
+        sections: list | None = None,
+        doc_metadata: dict | None = None,
     ) -> AsyncGenerator[tuple[list[str], list[str], list[dict]], None]:
         """Build chunks, IDs, and metadata for a parsed document.
 
@@ -34,6 +39,12 @@ class IndexStrategy(ABC):
             creation_settings: Knowledge base creation settings dict.
             plugin: Optional plugin reference for strategies that need
                 Host API access (e.g. LLM calls during ingestion).
+            sections: Optional list of TextSection objects from an external
+                parser.  When provided, strategies should use section-aware
+                chunking instead of flat text splitting.
+            doc_metadata: Optional document-level metadata from the parser
+                (e.g. page_count, has_tables).  Fields (except ``images``)
+                are merged into each chunk's metadata with a ``doc_`` prefix.
 
         Yields:
             A tuple of (texts_to_embed, ids, metadatas).
@@ -42,6 +53,19 @@ class IndexStrategy(ABC):
             - metadatas: metadata dict for each chunk.
         """
         yield  # abstract – subclasses must override
+
+    @staticmethod
+    def _build_doc_meta_fields(doc_metadata: dict | None) -> dict:
+        """Extract document-level metadata fields with ``doc_`` prefix.
+
+        Excludes heavy fields like ``images`` to keep chunk metadata lean.
+        """
+        if not doc_metadata:
+            return {}
+        skip = {"images"}
+        return {
+            f"doc_{k}": v for k, v in doc_metadata.items() if k not in skip
+        }
 
     def postprocess_results(self, results: list[dict], top_k: int) -> list[dict]:
         """Post-process search results before returning to the caller.

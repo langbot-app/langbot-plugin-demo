@@ -14,7 +14,16 @@ metadata:
   icon: assets/icon.svg
 
 spec:
-  config: []
+  config:
+    - name: vision_llm_model_uuid
+      label:
+        en_US: Vision Model
+        zh_Hans: 视觉模型
+      type: llm-model-selector
+      required: false
+      description:
+        en_US: 'Optional: Select a vision-capable LLM to enable OCR for scanned pages and image description'
+        zh_Hans: '可选：选择视觉模型，自动识别扫描页文字、描述 PDF 中的图片'
   components:
     Parser:
       fromDirs:

@@ -54,6 +54,28 @@ class GeneralParsers(Parser):
         else:
             extension = ''
 
+        # Build invoke_vision callback if a vision model is configured
+        invoke_vision = None
+        config = self.plugin.get_config()
+        vision_model_uuid = config.get('vision_llm_model_uuid')
+        if vision_model_uuid:
+            async def invoke_vision(image_b64: str, prompt: str) -> str:
+                from langbot_plugin.api.entities.builtin.provider.message import (
+                    Message, ContentElement,
+                )
+                resp = await self.plugin.invoke_llm(
+                    vision_model_uuid,
+                    [Message(role='user', content=[
+                        ContentElement.from_image_base64(image_b64),
+                        ContentElement.from_text(prompt),
+                    ])]
+                )
+                if isinstance(resp.content, str):
+                    return resp.content
+                return ''.join(
+                    e.text for e in resp.content if e.type == 'text' and e.text
+                )
+
         extra_metadata = {}
         if extension in PARSERS:
             parser_func = PARSERS[extension]
@@ -62,7 +84,10 @@ class GeneralParsers(Parser):
                 text = ''
             else:
                 try:
-                    result = await parser_func(file_bytes, filename)
+                    if extension == 'pdf':
+                        result = await parser_func(file_bytes, filename, invoke_vision=invoke_vision)
+                    else:
+                        result = await parser_func(file_bytes, filename)
                     # PDF/DOCX parsers return (text, extra_metadata), others return str
                     if isinstance(result, tuple):
                         text, extra_metadata = result

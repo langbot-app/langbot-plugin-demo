@@ -177,6 +177,16 @@ spec:
         field: query_rewrite
         operator: neq
         value: "off"
+    - name: context_window
+      label:
+        en_US: Context Window
+        zh_Hans: 上下文窗口
+      description:
+        en_US: 'Number of adjacent chunks to include as context for each hit (0 = disabled). Requires vector store ID-based lookup support.'
+        zh_Hans: '为每个命中 chunk 附加的相邻 chunk 数量（0 = 禁用）。需要向量库支持按 ID 查询。'
+      type: integer
+      required: false
+      default: 0
 execution:
   python:
     path: langrag.py
