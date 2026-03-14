@@ -68,7 +68,8 @@ class GeneralParsers(Parser):
                     [Message(role='user', content=[
                         ContentElement.from_image_base64(image_b64),
                         ContentElement.from_text(prompt),
-                    ])]
+                    ])],
+                    timeout=60,
                 )
                 if isinstance(resp.content, str):
                     return resp.content
