@@ -99,6 +99,7 @@ class MemoryInjector(EventListener):
                 await api.set_query_var("_knowledge_base_uuids", kb_uuids)
 
         # --- L2 episodic memory retrieval ---
+        retrieved_episodes: list[dict] = []
         user_message_text: str = query_vars.get("user_message_text", "")
         if user_message_text:
             try:
@@ -114,6 +115,12 @@ class MemoryInjector(EventListener):
                         for content in entry.get("content", []):
                             if content.get("type") == "text" and content.get("text"):
                                 texts.append(f"[{i}] {content['text']}")
+                    retrieved_episodes = [
+                        {"content": c["text"]}
+                        for entry in entries
+                        for c in entry.get("content", [])
+                        if c.get("type") == "text" and c.get("text")
+                    ]
                     if texts:
                         l2_block = (
                             "# Relevant Memories\n\n"
@@ -154,12 +161,33 @@ class MemoryInjector(EventListener):
         session_profile_block = store.format_profile_prompt(
             session_profile, "## Session Memory"
         )
+        speaker_profile = None
         speaker_profile_block = ""
         if sender_id:
             speaker_profile = await store.load_speaker_profile(scope_key, sender_id)
             speaker_profile_block = store.format_profile_prompt(
                 speaker_profile, "## Current Speaker Profile"
             )
+
+        # --- context sharing for other plugins ---
+        await api.set_query_var("_ltm_context", {
+            "speaker": {"id": sender_id, "name": sender_name},
+            "session_profile": {
+                "name": session_profile.get("name", ""),
+                "traits": session_profile.get("traits", []),
+                "preferences": session_profile.get("preferences", []),
+                "notes": session_profile.get("notes", ""),
+                "updated_at": session_profile.get("updated_at", ""),
+            },
+            "speaker_profile": {
+                "name": speaker_profile.get("name", ""),
+                "traits": speaker_profile.get("traits", []),
+                "preferences": speaker_profile.get("preferences", []),
+                "notes": speaker_profile.get("notes", ""),
+                "updated_at": speaker_profile.get("updated_at", ""),
+            } if speaker_profile else None,
+            "episodes": retrieved_episodes,
+        })
 
         # Build injection parts
         blocks: list[str] = []
