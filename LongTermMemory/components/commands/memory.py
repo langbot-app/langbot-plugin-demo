@@ -212,9 +212,95 @@ class Memory(Command):
                 imp = ep.get("importance", 2)
                 tags = ", ".join(ep.get("tags", []))
                 tag_str = f" [{tags}]" if tags else ""
-                lines.append(f"  {ts} (imp:{imp}){tag_str} {ep['content']}")
+                eid = ep.get("id", "?")
+                lines.append(f"  [{eid}] {ts} (imp:{imp}){tag_str} {ep['content']}")
 
             yield CommandReturn(text="\n".join(lines))
+
+        @self.subcommand(
+            name="list",
+            help="List episodic memories with pagination",
+            usage="!memory list [page]",
+            aliases=["l", "ls"],
+        )
+        async def list_cmd(
+            self: Memory,
+            context: ExecuteContext,
+        ) -> AsyncGenerator[CommandReturn, None]:
+            store = self.plugin.memory_store
+            ctx = await self._build_runtime_context(self.plugin, context)
+
+            if not ctx.kb_id or not await self._is_memory_kb_active(store, ctx.api, ctx.kb_id):
+                yield CommandReturn(
+                    text="[Memory] Memory knowledge base is not configured for the current pipeline."
+                )
+                return
+
+            page = 1
+            if context.crt_params:
+                try:
+                    page = max(1, int(context.crt_params[0]))
+                except ValueError:
+                    yield CommandReturn(text="Usage: !memory list [page]")
+                    return
+
+            page_size = 10
+            offset = (page - 1) * page_size
+
+            episodes, total = await store.list_episodes(
+                collection_id=ctx.kb_id,
+                user_key=ctx.user_key,
+                limit=page_size,
+                offset=offset,
+            )
+
+            if not episodes:
+                yield CommandReturn(text="[Memory] No episodes found.")
+                return
+
+            total_str = str(total) if total >= 0 else "?"
+            lines = [f"[Memory] Episodes (page {page}, {total_str} total):"]
+            for ep in episodes:
+                ts = ep["timestamp"][:10] if ep.get("timestamp") else "?"
+                imp = ep.get("importance", 2)
+                tags = ", ".join(ep.get("tags", []))
+                tag_str = f" [{tags}]" if tags else ""
+                eid = ep.get("id", "?")
+                content_preview = store._preview_text(ep.get("content", ""), 80)
+                lines.append(f"  [{eid}] {ts} (imp:{imp}){tag_str} {content_preview}")
+
+            yield CommandReturn(text="\n".join(lines))
+
+        @self.subcommand(
+            name="forget",
+            help="Delete an episode by ID",
+            usage="!memory forget <episode_id>",
+            aliases=["f", "del"],
+        )
+        async def forget_cmd(
+            self: Memory,
+            context: ExecuteContext,
+        ) -> AsyncGenerator[CommandReturn, None]:
+            store = self.plugin.memory_store
+            ctx = await self._build_runtime_context(self.plugin, context)
+
+            if not ctx.kb_id or not await self._is_memory_kb_active(store, ctx.api, ctx.kb_id):
+                yield CommandReturn(
+                    text="[Memory] Memory knowledge base is not configured for the current pipeline."
+                )
+                return
+
+            if not context.crt_params:
+                yield CommandReturn(text="Usage: !memory forget <episode_id>")
+                return
+
+            episode_id = context.crt_params[0].strip()
+            count = await store.delete_episode_by_id(
+                collection_id=ctx.kb_id,
+                episode_id=episode_id,
+                user_key=ctx.user_key,
+            )
+            yield CommandReturn(text=f"[Memory] Episode {episode_id} deleted.")
 
         @self.subcommand(
             name="export",

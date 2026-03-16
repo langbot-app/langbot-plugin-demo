@@ -812,6 +812,81 @@ class MemoryStore:
 
     # ======================== L2: episodes (ChromaDB vector) ========================
 
+    _SUPERSEDE_IMPORTANCE_FACTOR = 0.1  # multiplied onto old importance
+
+    async def _auto_supersede(
+        self,
+        collection_id: str,
+        embedding_model_uuid: str,
+        query_vector: list[float],
+        user_key: str,
+        new_episode_id: str,
+        similarity_threshold: float = 0.85,
+        max_candidates: int = 5,
+    ) -> int:
+        """Find similar older episodes and mark them as superseded.
+
+        Superseding means re-upserting the old vector with:
+        - importance reduced by _SUPERSEDE_IMPORTANCE_FACTOR
+        - 'superseded_by' metadata field set to new_episode_id
+
+        Returns the number of superseded episodes.
+        """
+        filters: dict[str, Any] = {"user_key": user_key}
+        results = await self.plugin.vector_search(
+            collection_id=collection_id,
+            query_vector=query_vector,
+            top_k=max_candidates + 1,  # +1 because the new episode itself may appear
+            filters=filters,
+        )
+
+        superseded = 0
+        for r in results:
+            rid = r.get("id", "")
+            if rid == new_episode_id:
+                continue
+            meta = r.get("metadata", {})
+            # Already superseded — skip
+            if meta.get("superseded_by"):
+                continue
+
+            # Check similarity: distance is cosine distance (lower = more similar)
+            distance = r.get("distance", 1.0)
+            similarity = 1.0 - distance
+            if similarity < similarity_threshold:
+                continue
+
+            # Re-upsert with reduced importance and superseded_by marker
+            old_importance = int(meta.get("importance", "2"))
+            new_importance = max(1, int(old_importance * self._SUPERSEDE_IMPORTANCE_FACTOR))
+            meta["importance"] = str(new_importance)
+            meta["superseded_by"] = new_episode_id
+
+            # We need the original vector; re-embed from content
+            old_content = meta.get("content", "")
+            if not old_content:
+                continue
+            old_vectors = await self.plugin.invoke_embedding(embedding_model_uuid, [old_content])
+
+            await self.plugin.vector_upsert(
+                collection_id=collection_id,
+                vectors=old_vectors,
+                ids=[rid],
+                metadata=[meta],
+                documents=[old_content],
+            )
+            superseded += 1
+            logger.info(
+                "[LongTermMemory] auto_supersede: episode %s superseded by %s (similarity=%.3f, importance %s->%s)",
+                rid,
+                new_episode_id,
+                similarity,
+                old_importance,
+                new_importance,
+            )
+
+        return superseded
+
     async def add_episode(
         self,
         collection_id: str,
@@ -867,6 +942,27 @@ class MemoryStore:
             episode_id,
             timestamp,
         )
+
+        # Auto-supersede: when the new episode is a correction / fact-update /
+        # clarification, search for similar older episodes in the same scope and
+        # mark them as superseded by lowering their importance.
+        _SUPERSEDE_TAGS = {"correction", "fact-update", "clarification"}
+        if _SUPERSEDE_TAGS & set(tags):
+            try:
+                await self._auto_supersede(
+                    collection_id=collection_id,
+                    embedding_model_uuid=embedding_model_uuid,
+                    query_vector=vectors[0],
+                    user_key=user_key,
+                    new_episode_id=episode_id,
+                    similarity_threshold=0.85,
+                )
+            except Exception:
+                logger.warning(
+                    "[LongTermMemory] auto_supersede failed for episode %s, skipping",
+                    episode_id,
+                    exc_info=True,
+                )
 
         return {
             "id": episode_id,
@@ -971,6 +1067,61 @@ class MemoryStore:
         return await self.plugin.vector_delete(
             collection_id=collection_id,
             filters={"user_key": user_key},
+        )
+
+    async def list_episodes(
+        self,
+        collection_id: str,
+        user_key: str,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """List episodic memories for a user with pagination.
+
+        Returns:
+            Tuple of (episodes, total).
+        """
+        filters: dict[str, Any] = {"user_key": user_key}
+        result = await self.plugin.vector_list(
+            collection_id=collection_id,
+            filters=filters,
+            limit=limit,
+            offset=offset,
+        )
+        items = result.get("items", [])
+        total = result.get("total", -1)
+
+        episodes = []
+        for item in items:
+            meta = item.get("metadata", {})
+            episodes.append({
+                "id": item.get("id", ""),
+                "content": meta.get("content", "") or item.get("document", ""),
+                "tags": meta.get("tags", "").split(",") if meta.get("tags") else [],
+                "importance": int(meta.get("importance", "2")),
+                "timestamp": meta.get("timestamp", ""),
+                "sender_id": meta.get("sender_id", ""),
+                "sender_name": meta.get("sender_name", ""),
+                "source": meta.get("source", ""),
+            })
+        return episodes, total
+
+    async def delete_episode_by_id(
+        self,
+        collection_id: str,
+        episode_id: str,
+        user_key: str,
+    ) -> int:
+        """Delete a single episode by its ID, scoped to user_key for safety."""
+        filters: dict[str, Any] = {
+            "$and": [
+                {"user_key": user_key},
+            ]
+        }
+        return await self.plugin.vector_delete(
+            collection_id=collection_id,
+            file_ids=[episode_id],
+            filters=filters,
         )
 
     # ======================== formatting ========================

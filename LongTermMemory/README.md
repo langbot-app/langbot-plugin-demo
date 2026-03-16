@@ -10,10 +10,15 @@ Long-term memory plugin for LangBot with a dual-layer design:
 - Exposes a `remember` tool for episodic memory writes
 - Exposes a `recall_memory` tool for active episodic memory lookup with controlled filters
 - Exposes an `update_profile` tool for stable profile updates
+- Exposes a `forget` tool for agent-initiated deletion of specific episodic memories
 - Injects profile memory and current speaker identity through an EventListener
 - Uses an EventListener to retrieve and inject relevant episodic memories before model invocation
 - Provides a `!memory` command for inspection and debugging
+- Provides `!memory list [page]` to browse episodic memories with pagination
+- Provides `!memory forget <episode_id>` to delete a specific episode
+- Provides `!memory search <query>` to search episodes (results include episode IDs)
 - Provides a `!memory export` command to export L1 profiles for the current session as JSON
+- Automatically supersedes related older episodes when a correction/fact-update/clarification is stored
 
 ## Overall Design
 
@@ -112,6 +117,22 @@ This plugin intentionally stays close to LangBot's existing extension points ins
 
 The current implementation is built around the existing LangBot and SDK APIs. If LangBot later adds more explicit memory-oriented APIs, session identity APIs, or KB registration APIs, the plugin could be simplified, but the current architecture would still remain valid.
 
+### Vector Database Backend Compatibility
+
+L2 episodic memory relies on arbitrary metadata fields (`user_key`, `episode_id`, `tags`, `importance`, etc.) for isolation and filtering. Not all LangBot vector database backends support arbitrary metadata:
+
+| Backend | Arbitrary metadata | LongTermMemory support |
+|---------|-------------------|----------------------|
+| **Chroma** (default) | Yes | Full support |
+| **Qdrant** | Yes | Full support |
+| **SeekDB** | Yes | Full support |
+| **Milvus** | No (fixed schema: `text`, `file_id`, `chunk_uuid`) | Not supported |
+| **pgvector** | No (fixed schema: `text`, `file_id`, `chunk_uuid`) | Not supported |
+
+Milvus and pgvector use a fixed column schema and silently drop metadata fields they do not recognize. This means metadata-based isolation (`user_key` filtering) and episodic memory commands (`!memory list`, `!memory forget`, `!memory search`) will not work correctly on these backends — filters will be ignored and queries may return unscoped results.
+
+If you need to use LongTermMemory, use Chroma, Qdrant, or SeekDB as your vector database backend.
+
 ## How It Works
 
 An end-to-end long-term memory flow has four main parts:
@@ -144,7 +165,7 @@ So both L1 and L2 enter the model context before answer generation, but in diffe
 ### 4. Active lookup and debugging
 
 - If automatic injection is insufficient, the agent can call `recall_memory`
-- For inspection and debugging, you can use `!memory`, `!memory profile`, and `!memory search`
+- For inspection and debugging, you can use `!memory`, `!memory profile`, `!memory search`, `!memory list`, and `!memory forget`
 - `!memory export` exports only the current scope's L1 profiles for backup or migration
 
 ## Relationship With AgenticRAG
@@ -238,13 +259,91 @@ That is intentional:
    - `remember` for events, plans, and episodic facts
    - `recall_memory` for active memory lookup when automatic recall is insufficient
    - `update_profile` for stable preferences and profile data
-5. Use `!memory`, `!memory profile`, `!memory search <query>`, and `!memory export` to inspect behavior.
+   - `forget` to delete a specific episodic memory by ID
+5. Use `!memory`, `!memory profile`, `!memory search <query>`, `!memory list [page]`, `!memory forget <id>`, and `!memory export` to inspect behavior.
+
+## Context Sharing for Other Plugins
+
+LongTermMemory writes a structured context summary to the query variable `_ltm_context` during every `PromptPreProcessing` event. Other plugins can read this variable to make programmatic decisions based on user memory, without importing or referencing LongTermMemory in any way.
+
+### Variable Key
+
+`_ltm_context`
+
+### Schema
+
+```python
+{
+    "speaker": {
+        "id": "user_123",           # sender_id, may be empty string
+        "name": "Alice",            # sender_name, may be empty string
+    },
+    "session_profile": {            # always present, fields may be empty
+        "name": "",
+        "traits": ["creative", "analytical"],
+        "preferences": ["prefers detailed explanations"],
+        "notes": "",
+        "updated_at": "2025-03-16T12:00:00Z",
+    },
+    "speaker_profile": {            # null when sender_id is unavailable
+        "name": "Alice",
+        "traits": ["extroverted"],
+        "preferences": ["likes humor"],
+        "notes": "",
+        "updated_at": "2025-03-16T12:00:00Z",
+    },
+    "episodes": [                   # auto-recalled L2 episodic memories, may be empty
+        {"content": "User mentioned a trip to Beijing last week"},
+    ],
+}
+```
+
+### Usage Example
+
+```python
+from langbot_plugin.api.definition.components.common.event_listener import EventListener
+from langbot_plugin.api.entities import events, context
+from langbot_plugin.api.entities.builtin.provider.message import Message
+
+
+class PersonalityCustomizer(EventListener):
+    def __init__(self):
+        super().__init__()
+
+        @self.handler(events.PromptPreProcessing)
+        async def on_prompt(event_ctx: context.EventContext):
+            ltm = await event_ctx.get_query_var("_ltm_context")
+            if not ltm:
+                # LongTermMemory not installed or inactive — use defaults
+                return
+
+            profile = ltm.get("speaker_profile") or ltm.get("session_profile") or {}
+            traits = profile.get("traits", [])
+
+            if "喜欢幽默" in traits:
+                style = "Use a humorous and playful tone."
+            elif "偏好简洁" in traits:
+                style = "Be concise and direct."
+            else:
+                return
+
+            event_ctx.event.default_prompt.append(
+                Message(role="system", content=style)
+            )
+```
+
+### Design Notes
+
+- If LongTermMemory is not installed, `_ltm_context` does not exist. Consuming plugins should treat `None` as normal and fall back to default behavior.
+- If LongTermMemory is active but no profile data has been stored yet, the variable exists with empty fields. This lets consuming plugins distinguish "no memory plugin" from "memory plugin active, no data yet".
+- Both sides depend only on the variable key and schema convention, not on each other's code. If LongTermMemory is replaced by another memory plugin that writes the same key with the same schema, consuming plugins continue to work.
+- LongTermMemory must run before consuming plugins in the event dispatch order. In practice this depends on plugin installation order.
 
 ## Import / Export
 
 - **Export (L1 profiles):** Use `!memory export` to export the current scope's session and speaker profiles as JSON. It does not export data from other sessions or scopes.
 - **Import (L2 episodic memory):** Upload a JSON file through the LangBot knowledge base UI to bulk-import episodic memories.
-- **L2 episodic memory cannot be exported** because the SDK does not provide a vector store enumeration API. Only L1 profiles support export.
+- **L2 episodic memory can be browsed** via `!memory list [page]` and individual episodes deleted via `!memory forget <id>`. Full bulk export is not yet implemented.
 
 ## Key Technical Q&A
 
@@ -319,15 +418,9 @@ So this is not a full failure, but it can waste context and make the prompt nois
 
 ### Q8. Why is L2 export not supported yet?
 
-Because the SDK still does not provide a stable way to enumerate the full vector store content.
+The SDK now provides a `vector_list` API for paginated enumeration of vector store content. L2 episodic memories can be browsed via `!memory list [page]` and deleted individually via `!memory forget <episode_id>` or the `forget` tool.
 
-Today LongTermMemory can reliably:
-
-- write L2 memories
-- retrieve L2 memories with filters
-- bulk-import L2 memories through the knowledge base UI
-
-But it still cannot safely reconstruct the entire L2 store as an export.
+Full bulk export is not yet implemented, but the building blocks are in place.
 
 ### Q9. Will LongTermMemory and AgenticRAG duplicate recall when both are enabled?
 
@@ -341,7 +434,7 @@ No, that duplication is exactly what the current design avoids:
 
 - KnowledgeEngine: [memory_engine.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/knowledge_engine/memory_engine.py)
 - EventListener: [memory_injector.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/event_listener/memory_injector.py)
-- Tools: [remember.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/tools/remember.py), [recall_memory.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/tools/recall_memory.py), [update_profile.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/tools/update_profile.py)
+- Tools: [remember.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/tools/remember.py), [recall_memory.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/tools/recall_memory.py), [update_profile.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/tools/update_profile.py), [forget.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/tools/forget.py)
 - Command: [memory.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/commands/memory.py)
 
 ## Current Gaps
