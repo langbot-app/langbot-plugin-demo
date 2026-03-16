@@ -1,44 +1,29 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
-import re
 import statistics
 from collections import Counter
-from typing import Callable, Awaitable, Optional
+from typing import Optional
 
 import fitz
 
 from ..utils import run_sync
+from ..vision import (
+    ANALYZE_IMAGE_PROMPT,
+    OCR_PAGE_PROMPT,
+    InvokeVision,
+    encode_image_base64,
+    sanitize_vision_text,
+)
 
 logger = logging.getLogger(__name__)
-
-# Type alias for the vision callback
-InvokeVision = Callable[[str, str], Awaitable[str]]
 
 # B4: Font-size heading thresholds (ratio relative to median font size)
 _HEADING_RATIO_H1 = 2.0
 _HEADING_RATIO_H2 = 1.6
 _HEADING_RATIO_H3 = 1.3
 _HEADING_MAX_LINE_LEN = 100  # lines longer than this are unlikely headings
-
-_THINK_TAG_RE = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
-_VISION_REFUSAL_PATTERNS = (
-    "i don't have the ability to see or analyze images",
-    "i do not have the ability to see or analyze images",
-    "i can't see or analyze images",
-    "i cannot see or analyze images",
-    "no image was attached",
-    "what can i help you with",
-    "我无法查看图片",
-    "我无法直接查看图片",
-    "我不能查看图片",
-    "没有附加图片",
-    "没有附加到你的消息",
-    "如果你愿意我帮助",
-    "what you'd like me to help with",
-)
 
 
 async def parse_pdf(
@@ -250,7 +235,7 @@ async def parse_pdf(
                     if pix.n - pix.alpha > 3:
                         pix = fitz.Pixmap(fitz.csRGB, pix)
                     img_bytes = pix.tobytes('png')
-                    img_b64 = base64.b64encode(img_bytes).decode('ascii')
+                    img_b64 = encode_image_base64(img_bytes)
                     images.append({
                         'page': page_num,
                         'index': img_idx,
@@ -311,7 +296,7 @@ async def parse_pdf(
                 try:
                     pix = page.get_pixmap(dpi=200)
                     page_img_bytes = pix.tobytes('png')
-                    page_img_b64 = base64.b64encode(page_img_bytes).decode('ascii')
+                    page_img_b64 = encode_image_base64(page_img_bytes)
                     vision_tasks.append({
                         'type': 'scanned_page',
                         'page': page_num,
@@ -375,9 +360,9 @@ async def _process_vision_tasks(
         async with semaphore:
             try:
                 if task['type'] == 'scanned_page':
-                    prompt = '请识别并提取这张图片中的所有文字内容，保持原始排版。'
+                    prompt = OCR_PAGE_PROMPT
                 else:
-                    prompt = '请简要描述这张图片的内容。'
+                    prompt = ANALYZE_IMAGE_PROMPT
                 result = await invoke_vision(task['image_b64'], prompt)
                 return task, result
             except Exception as e:
@@ -387,7 +372,7 @@ async def _process_vision_tasks(
     results = await asyncio.gather(*[_call_vision(t) for t in vision_tasks])
 
     for task, vision_text in results:
-        vision_text = _sanitize_vision_text(vision_text)
+        vision_text = sanitize_vision_text(vision_text)
         if not vision_text:
             continue
 
@@ -436,22 +421,6 @@ async def _process_vision_tasks(
             full_text = full_text.replace(placeholder, replacement, 1)
 
     return full_text
-
-
-def _sanitize_vision_text(text: str) -> str:
-    """Strip chain-of-thought and common refusal boilerplate from vision output."""
-    cleaned = _THINK_TAG_RE.sub("", text).strip()
-    if not cleaned:
-        return ""
-
-    lowered = cleaned.lower()
-    if any(pattern in lowered for pattern in _VISION_REFUSAL_PATTERNS):
-        return ""
-
-    # Some models prepend labels before the actual description.
-    cleaned = re.sub(r"^\[(?:图片描述|image description)\s*:\s*", "", cleaned, flags=re.IGNORECASE)
-    cleaned = cleaned.rstrip(" ]")
-    return cleaned.strip()
 
 
 def _pymupdf_table_to_markdown(table) -> str:

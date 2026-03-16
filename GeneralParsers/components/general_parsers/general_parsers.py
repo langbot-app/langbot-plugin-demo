@@ -5,6 +5,7 @@ import logging
 
 from .parsers.pdf import parse_pdf
 from .parsers.docx import parse_docx
+from .parsers.image import parse_image
 from .parsers.html_text import parse_txt, parse_md, parse_html
 from .utils import decode_text, find_page
 
@@ -26,13 +27,51 @@ PARSERS = {
     'md': parse_md,
     'html': parse_html,
     'htm': parse_html,
+    'png': parse_image,
+    'jpg': parse_image,
+    'jpeg': parse_image,
+    'webp': parse_image,
+    'gif': parse_image,
+    'bmp': parse_image,
+    'tif': parse_image,
+    'tiff': parse_image,
+}
+
+VISION_AWARE_EXTENSIONS = {
+    'pdf',
+    'docx',
+    'md',
+    'html',
+    'htm',
+    'png',
+    'jpg',
+    'jpeg',
+    'webp',
+    'gif',
+    'bmp',
+    'tif',
+    'tiff',
+}
+
+MIME_EXTENSION_FALLBACK = {
+    'application/pdf': 'pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'text/plain': 'txt',
+    'text/markdown': 'md',
+    'text/html': 'html',
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+    'image/bmp': 'bmp',
+    'image/tiff': 'tiff',
 }
 
 
 class GeneralParsers(Parser):
     """GeneralParsers component that extracts structured text from binary files.
 
-    Supports PDF, DOCX, Markdown, HTML, and plain text files.
+    Supports PDF, DOCX, Markdown, HTML, plain text, and direct image files.
     Based on the parsing logic from LangRAG.
     """
 
@@ -47,12 +86,15 @@ class GeneralParsers(Parser):
         """
         filename = context.filename
         file_bytes = context.file_content
+        mime_type = (context.mime_type or '').split(';', 1)[0].strip().lower()
 
         # Determine extension from filename
         if '.' in filename:
             extension = filename.rsplit('.', 1)[-1].lower()
         else:
             extension = ''
+        if not extension:
+            extension = MIME_EXTENSION_FALLBACK.get(mime_type, '')
 
         # Build invoke_vision callback if a vision model is configured
         invoke_vision = None
@@ -85,11 +127,11 @@ class GeneralParsers(Parser):
                 text = ''
             else:
                 try:
-                    if extension == 'pdf':
+                    if extension in VISION_AWARE_EXTENSIONS:
                         result = await parser_func(file_bytes, filename, invoke_vision=invoke_vision)
                     else:
                         result = await parser_func(file_bytes, filename)
-                    # PDF/DOCX parsers return (text, extra_metadata), others return str
+                    # Parsers may return (text, extra_metadata) or plain text only.
                     if isinstance(result, tuple):
                         text, extra_metadata = result
                     else:

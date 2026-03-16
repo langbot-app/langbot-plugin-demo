@@ -6,8 +6,8 @@ metadata:
   repository: 'https://github.com/langbot-app/langbot-plugin-demo'
   version: 0.1.3
   description:
-    en_US: 'General Parsers - Extract text from PDF, Word, Markdown, HTML, and TXT files'
-    zh_Hans: '通用解析器 - 从 PDF、Word、Markdown、HTML、TXT 文件中提取文本'
+    en_US: 'General Parsers - Extract text from PDF, Word, Markdown, HTML, TXT, and image files'
+    zh_Hans: '通用解析器 - 从 PDF、Word、Markdown、HTML、TXT 和图片文件中提取文本'
   label:
     en_US: GeneralParsers
     zh_Hans: 通用解析器
@@ -22,8 +22,8 @@ spec:
       type: llm-model-selector
       required: false
       description:
-        en_US: 'Optional: Select a vision-capable LLM to enable OCR for scanned pages and image description'
-        zh_Hans: '可选：选择视觉模型，自动识别扫描页文字、描述 PDF 中的图片'
+        en_US: 'Optional: Select a vision-capable LLM to enable OCR for scanned pages and recognize images in PDFs, DOCX, and direct image uploads'
+        zh_Hans: '可选：选择视觉模型，自动识别扫描页文字，并识别 PDF、DOCX 以及直接上传图片中的内容'
   components:
     Parser:
       fromDirs:
@@ -33,4 +33,3 @@ execution:
   python:
     path: main.py
     attr: GeneralParsersPlugin
-

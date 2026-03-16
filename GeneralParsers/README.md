@@ -7,10 +7,11 @@ Official LangBot parser plugin that extracts structured text from files for Know
 | Format | MIME Type | Parser |
 |--------|-----------|--------|
 | PDF | `application/pdf` | PyMuPDF-based layout-aware extraction with tables, page markers, and optional vision enhancement |
-| DOCX | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` | python-docx paragraph extraction |
+| DOCX | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` | python-docx extraction with paragraph/table parsing and optional embedded-image recognition |
 | Markdown | `text/markdown` | Convert to HTML, then structured extraction (headings, lists, code blocks, tables) |
 | HTML | `text/html` | BeautifulSoup extraction (auto-removes script/style) |
 | TXT | `text/plain` | Auto encoding detection (chardet) |
+| Images | `image/png`, `image/jpeg`, `image/webp`, `image/gif`, `image/bmp`, `image/tiff` | Direct vision-based recognition when a vision model is configured |
 
 ## Architecture
 
@@ -36,10 +37,10 @@ Official LangBot parser plugin that extracts structured text from files for Know
 
 ## Features
 
-- **Optional Vision Model Support** - Configure a vision-capable LLM to OCR scanned PDF pages and describe embedded images
+- **Optional Vision Model Support** - Configure a vision-capable LLM to OCR scanned PDF pages, recognize embedded PDF/DOCX images, and parse direct image uploads
 - **Improved PDF Parsing** - PyMuPDF-based extraction preserves page boundaries, merges tables into output, and emits richer document metadata
 - **Scanned PDF Handling** - Detects likely scanned pages and uses the vision model for OCR when configured
-- **Embedded Image Description** - Extracts PDF images and can turn them into short inline descriptions for downstream retrieval
+- **Cross-Format Image Recognition** - Embedded PDF/DOCX images and direct image uploads can be turned into inline recognition text for downstream retrieval
 - **Header/Footer Filtering** - Repeated page headers and footers are detected and removed from PDF output
 - **Section Structure Recognition** - Detects Markdown-style headings (`# ~ ######`) and splits output into leveled sections
 - **Table to Markdown** - Tables in PDF/HTML/Markdown are converted to Markdown table format
@@ -51,14 +52,14 @@ Official LangBot parser plugin that extracts structured text from files for Know
 
 The plugin exposes one optional config item:
 
-- `vision_llm_model_uuid`: a vision-capable LLM used for scanned-page OCR and PDF image description
+- `vision_llm_model_uuid`: a vision-capable LLM used for scanned-page OCR, embedded PDF/DOCX image recognition, and direct image parsing
 
-If this option is left empty, GeneralParsers still works normally, but PDF parsing falls back to text/layout extraction only.
+If this option is left empty, GeneralParsers still works normally, but image understanding falls back to placeholders and PDF parsing uses text/layout extraction only.
 
 ## Usage
 
 1. Install this plugin in LangBot
-2. Optionally configure a vision model if you want OCR for scanned PDFs and image descriptions
+2. Optionally configure a vision model if you want OCR for scanned PDFs, DOCX/PDF image recognition, or direct image parsing
 3. When uploading files to a knowledge base, select GeneralParsers as the parser
 4. Parse results are automatically passed to the KnowledgeEngine plugin for further processing
 

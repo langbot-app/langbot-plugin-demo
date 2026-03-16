@@ -7,10 +7,11 @@ LangBot 官方通用文档解析器插件，将文件提取为结构化文本，
 | 格式 | MIME Type | 解析方式 |
 |------|-----------|---------|
 | PDF | `application/pdf` | 基于 PyMuPDF 的版面感知解析，支持表格、分页标记和可选视觉增强 |
-| DOCX | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` | python-docx 提取段落 |
+| DOCX | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` | python-docx 提取段落/表格，并可选识别内嵌图片 |
 | Markdown | `text/markdown` | 转 HTML 后结构化提取（标题、列表、代码块、表格） |
 | HTML | `text/html` | BeautifulSoup 提取（自动移除 script/style） |
 | TXT | `text/plain` | 自动编码检测（chardet） |
+| 图片 | `image/png`、`image/jpeg`、`image/webp`、`image/gif`、`image/bmp`、`image/tiff` | 配置视觉模型后可直接识别 |
 
 ## 架构
 
@@ -36,10 +37,10 @@ LangBot 官方通用文档解析器插件，将文件提取为结构化文本，
 
 ## 特性
 
-- **可选视觉模型支持** - 可配置视觉大模型，对扫描版 PDF 做 OCR，并为 PDF 内嵌图片生成简要描述
+- **可选视觉模型支持** - 可配置视觉大模型，对扫描版 PDF 做 OCR，并识别 PDF/DOCX 内嵌图片和直接上传的图片文件
 - **增强的 PDF 解析** - 基于 PyMuPDF 保留分页边界，合并表格内容，并输出更丰富的文档元数据
 - **扫描版 PDF 处理** - 自动检测疑似扫描页，配置视觉模型后会进行 OCR
-- **内嵌图片描述** - 可提取 PDF 图片，并将其转成适合后续检索的简要文本描述
+- **跨格式图片识别** - 可将 PDF/DOCX 内嵌图片和直接上传图片转换为适合后续检索的文本结果
 - **页眉页脚过滤** - 自动识别并过滤 PDF 中重复出现的页眉和页脚
 - **段落结构识别** - 自动检测 Markdown 风格标题（`# ~ ######`），按标题拆分为带层级的 sections
 - **表格转 Markdown** - PDF/HTML/Markdown 中的表格自动转换为 Markdown 表格格式
@@ -51,14 +52,14 @@ LangBot 官方通用文档解析器插件，将文件提取为结构化文本，
 
 插件当前提供一个可选配置项：
 
-- `vision_llm_model_uuid`：视觉模型。用于扫描页 OCR 和 PDF 图片描述。
+- `vision_llm_model_uuid`：视觉模型。用于扫描页 OCR、PDF/DOCX 图片识别，以及直接上传图片的解析。
 
-如果不配置这个选项，GeneralParsers 仍然可以正常工作，只是 PDF 会退化为纯文本/版面解析，不会做视觉增强。
+如果不配置这个选项，GeneralParsers 仍然可以正常工作，但图片内容只会保留占位信息，PDF 也只会做纯文本/版面解析，不会做视觉增强。
 
 ## 使用方式
 
 1. 在 LangBot 中安装本插件
-2. 如果需要扫描版 PDF OCR 和图片描述，可额外配置视觉模型
+2. 如果需要扫描版 PDF OCR、DOCX/PDF 图片识别，或直接解析图片文件，可额外配置视觉模型
 3. 上传文件到知识库时，选择 GeneralParsers 作为解析器
 4. 解析结果自动传递给 KnowledgeEngine 插件进行后续处理
 
