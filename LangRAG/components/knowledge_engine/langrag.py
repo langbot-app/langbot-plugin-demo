@@ -16,6 +16,7 @@ from langbot_plugin.api.entities.builtin.rag import (
 
 from .parser import FileParser
 from .query_rewrite import retrieve_with_rewrite
+from .rerank import llm_rerank
 from .strategies import get_strategy
 
 logger = logging.getLogger(__name__)
@@ -301,8 +302,14 @@ class LangRAG(KnowledgeEngine):
             f"query={query!r}"
         )
 
-        # For parent_child, over-fetch to allow dedup to still yield top_k results
-        fetch_k = top_k * 3 if index_type in ("parent_child", "qa") else top_k
+        # For parent_child/qa, over-fetch to allow dedup to still yield top_k.
+        # When LLM reranking is enabled, always over-fetch to give the reranker
+        # a larger candidate pool regardless of strategy.
+        rerank_mode = context.retrieval_settings.get("rerank", "off")
+        if index_type in ("parent_child", "qa") or rerank_mode != "off":
+            fetch_k = top_k * 3
+        else:
+            fetch_k = top_k
 
         # Check query rewrite settings
         query_rewrite = context.retrieval_settings.get("query_rewrite", "off")
@@ -352,31 +359,48 @@ class LangRAG(KnowledgeEngine):
             f"(fetch_k={fetch_k})"
         )
 
-        # C1: Heading hit weighting — boost results whose heading_path
-        # contains query keywords.  Each keyword hit multiplies the distance
-        # by 0.9, improving the result's ranking.
-        query_keywords = [w for w in query.lower().split() if len(w) >= 2]
-        if query_keywords:
-            for res in results:
-                heading_path = (
-                    res.get("metadata", {}).get("heading_path", "") or ""
-                ).lower()
-                if not heading_path:
-                    continue
-                distance = res.get("distance")
-                if distance is not None and isinstance(distance, (int, float)):
-                    for kw in query_keywords:
-                        if kw in heading_path:
-                            distance *= 0.9
-                    res["distance"] = distance
-            # Re-sort by distance (lower is better) after weighting
-            results.sort(
-                key=lambda r: (
-                    r.get("distance")
-                    if isinstance(r.get("distance"), (int, float))
-                    else float("inf")
-                )
+        # LLM reranking — reorder candidates using an LLM for better relevance.
+        rerank_mode = context.retrieval_settings.get("rerank", "off")
+        rerank_llm = context.retrieval_settings.get("rerank_llm_model_uuid", "")
+        reranked = False
+
+        if rerank_mode == "llm" and rerank_llm:
+            logger.info("[Rerank] LLM reranking enabled")
+            results = await llm_rerank(
+                plugin=self.plugin,
+                llm_uuid=rerank_llm,
+                query=query,
+                results=results,
+                top_k=top_k,
             )
+            reranked = True
+
+        # C1: Heading hit weighting — boost results whose heading_path
+        # contains query keywords.  Skipped when LLM reranking is active
+        # because the LLM already understands heading relevance.
+        if not reranked:
+            query_keywords = [w for w in query.lower().split() if len(w) >= 2]
+            if query_keywords:
+                for res in results:
+                    heading_path = (
+                        res.get("metadata", {}).get("heading_path", "") or ""
+                    ).lower()
+                    if not heading_path:
+                        continue
+                    distance = res.get("distance")
+                    if distance is not None and isinstance(distance, (int, float)):
+                        for kw in query_keywords:
+                            if kw in heading_path:
+                                distance *= 0.9
+                        res["distance"] = distance
+                # Re-sort by distance (lower is better) after weighting
+                results.sort(
+                    key=lambda r: (
+                        r.get("distance")
+                        if isinstance(r.get("distance"), (int, float))
+                        else float("inf")
+                    )
+                )
 
         # C2: Context window — attempt to fetch adjacent chunks from the same
         # document to provide surrounding context.  Only works when the vector

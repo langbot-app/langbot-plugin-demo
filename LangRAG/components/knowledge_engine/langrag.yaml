@@ -177,6 +177,35 @@ spec:
         field: query_rewrite
         operator: neq
         value: "off"
+    - name: rerank
+      label:
+        en_US: Reranking
+        zh_Hans: 重排序
+      description:
+        en_US: 'Off: no reranking; LLM: use a language model to rerank candidates by relevance'
+        zh_Hans: 'Off：不重排序；LLM：使用大语言模型按相关性重排候选结果'
+      type: select
+      required: false
+      default: "off"
+      options:
+        - name: "off"
+          label: { en_US: "Off", zh_Hans: "关闭" }
+        - name: "llm"
+          label: { en_US: "LLM", zh_Hans: "LLM 重排序" }
+    - name: rerank_llm_model_uuid
+      label:
+        en_US: Rerank LLM
+        zh_Hans: 重排序 LLM
+      description:
+        en_US: LLM model for reranking retrieved candidates
+        zh_Hans: 用于对检索候选结果重排序的 LLM 模型
+      type: llm-model-selector
+      required: false
+      default: ''
+      show_if:
+        field: rerank
+        operator: eq
+        value: "llm"
     - name: context_window
       label:
         en_US: Context Window
