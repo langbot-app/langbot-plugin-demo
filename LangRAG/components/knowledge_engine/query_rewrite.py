@@ -68,6 +68,7 @@ async def retrieve_with_rewrite(
     fetch_k: int,
     filters,
     search_type,
+    vector_weight=None,
 ) -> list[dict]:
     """Route to the appropriate rewrite strategy and return raw search results."""
     if query_rewrite == "hyde":
@@ -80,6 +81,7 @@ async def retrieve_with_rewrite(
             fetch_k,
             filters,
             search_type,
+            vector_weight,
         )
     elif query_rewrite == "multi_query":
         return await _retrieve_multi_query(
@@ -91,6 +93,7 @@ async def retrieve_with_rewrite(
             fetch_k,
             filters,
             search_type,
+            vector_weight,
         )
     elif query_rewrite == "step_back":
         return await _retrieve_step_back(
@@ -102,6 +105,7 @@ async def retrieve_with_rewrite(
             fetch_k,
             filters,
             search_type,
+            vector_weight,
         )
     else:
         logger.warning(
@@ -115,6 +119,7 @@ async def retrieve_with_rewrite(
             filters=filters,
             search_type=search_type,
             query_text=query,
+            vector_weight=vector_weight,
         )
 
 
@@ -127,6 +132,7 @@ async def _retrieve_hyde(
     fetch_k,
     filters,
     search_type,
+    vector_weight=None,
 ) -> list[dict]:
     """HyDE: generate a hypothetical document, embed it, and search with that vector."""
     logger.info(f"[HyDE] Generating hypothetical document for query: {query!r}")
@@ -146,6 +152,7 @@ async def _retrieve_hyde(
         filters=filters,
         search_type=search_type,
         query_text=query,
+        vector_weight=vector_weight,
     )
     logger.info(f"[HyDE] Search returned {len(results)} results")
     return results
@@ -160,6 +167,7 @@ async def _retrieve_multi_query(
     fetch_k,
     filters,
     search_type,
+    vector_weight=None,
 ) -> list[dict]:
     """Multi-Query: generate N query variants, search with each, merge and deduplicate."""
     logger.info(
@@ -192,6 +200,7 @@ async def _retrieve_multi_query(
             filters=filters,
             search_type=search_type,
             query_text=query,
+            vector_weight=vector_weight,
         )
         new_count = sum(1 for r in results if r["id"] not in seen_ids)
         logger.info(
@@ -222,6 +231,7 @@ async def _retrieve_step_back(
     fetch_k,
     filters,
     search_type,
+    vector_weight=None,
 ) -> list[dict]:
     """Step-Back: generate a broader question, search with both original and abstract queries."""
     logger.info(f"[Step-Back] Generating abstract question for: {query!r}")
@@ -249,6 +259,7 @@ async def _retrieve_step_back(
             filters=filters,
             search_type=search_type,
             query_text=query,
+            vector_weight=vector_weight,
         )
         new_count = sum(1 for r in results if r["id"] not in seen_ids)
         logger.info(
