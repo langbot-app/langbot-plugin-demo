@@ -144,6 +144,20 @@ spec:
           label:
             en_US: Hybrid
             zh_Hans: 混合检索
+    - name: vector_weight
+      label:
+        en_US: Vector Search Weight
+        zh_Hans: 向量搜索权重
+      description:
+        en_US: 'Balance between vector and keyword search in hybrid mode (0.0 = keyword only, 1.0 = vector only)'
+        zh_Hans: '混合检索中向量搜索的权重（0.0 = 仅关键词，1.0 = 仅向量）'
+      type: float
+      required: false
+      default: 0.7
+      show_if:
+        field: search_type
+        operator: eq
+        value: hybrid
     - name: query_rewrite
       label:
         en_US: Query Rewriting

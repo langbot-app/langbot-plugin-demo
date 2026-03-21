@@ -293,6 +293,9 @@ class LangRAG(KnowledgeEngine):
         collection_id = context.get_collection_id()
         search_type = context.retrieval_settings.get("search_type", SearchType.VECTOR)
 
+        # Read hybrid fusion weight (YAML default 0.7; vdb fallback handles None)
+        vector_weight = float(context.retrieval_settings.get("vector_weight", 0.7))
+
         # Determine strategy for post-processing
         index_type = context.creation_settings.get("index_type") or "chunk"
         strategy = get_strategy(index_type)
@@ -300,6 +303,10 @@ class LangRAG(KnowledgeEngine):
             f"Retrieve: strategy={index_type}, top_k={top_k}, "
             f"query_rewrite={context.retrieval_settings.get('query_rewrite', 'off')}, "
             f"query={query!r}"
+        )
+        logger.info(
+            f"Retrieve search config: search_type={search_type}, "
+            f"vector_weight={vector_weight}"
         )
 
         # For parent_child/qa, over-fetch to allow dedup to still yield top_k.
@@ -329,6 +336,7 @@ class LangRAG(KnowledgeEngine):
                 fetch_k=fetch_k,
                 filters=context.filters or None,
                 search_type=search_type,
+                vector_weight=vector_weight,
             )
         else:
             # Original logic: embed query → vector_search
@@ -349,6 +357,7 @@ class LangRAG(KnowledgeEngine):
                 filters=context.filters or None,
                 search_type=search_type,
                 query_text=query,
+                vector_weight=vector_weight,
             )
 
         # Post-process (strategy may deduplicate / re-rank)
