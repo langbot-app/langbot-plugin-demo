@@ -432,10 +432,10 @@ No, that duplication is exactly what the current design avoids:
 
 ## Components
 
-- KnowledgeEngine: [memory_engine.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/knowledge_engine/memory_engine.py)
-- EventListener: [memory_injector.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/event_listener/memory_injector.py)
-- Tools: [remember.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/tools/remember.py), [recall_memory.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/tools/recall_memory.py), [update_profile.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/tools/update_profile.py), [forget.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/tools/forget.py)
-- Command: [memory.py](/home/yhh/workspace/langbot-plugin-demo/LongTermMemory/components/commands/memory.py)
+- KnowledgeEngine: [memory_engine.py](components/knowledge_engine/memory_engine.py)
+- EventListener: [memory_injector.py](components/event_listener/memory_injector.py)
+- Tools: [remember.py](components/tools/remember.py), [recall_memory.py](components/tools/recall_memory.py), [update_profile.py](components/tools/update_profile.py), [forget.py](components/tools/forget.py)
+- Command: [memory.py](components/commands/memory.py)
 
 ## Current Gaps
 
