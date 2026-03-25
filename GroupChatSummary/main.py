@@ -251,11 +251,15 @@ Chat Log ({len(messages)} messages):
 
         # Use LLM to generate summary
         try:
-            llm_models = await self.get_llm_models()
-            if not llm_models:
-                return "Error: No LLM model available."
-
-            llm_model_uuid = llm_models[0]
+            # Use configured model or fall back to first available
+            configured_model = self.get_config().get("model")
+            if configured_model:
+                llm_model_uuid = configured_model
+            else:
+                llm_models = await self.get_llm_models()
+                if not llm_models:
+                    return "Error: No LLM model available."
+                llm_model_uuid = llm_models[0]
 
             response = await self.invoke_llm(
                 llm_model_uuid=llm_model_uuid,
