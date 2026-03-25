@@ -18,7 +18,7 @@ class MessageCollector(EventListener):
 
             # Extract plain text from message chain
             text_parts = []
-            for component in event.message_chain.components:
+            for component in event.message_chain:
                 if isinstance(component, platform_message.Plain):
                     text_parts.append(component.text)
 

@@ -262,22 +262,21 @@ Chat Log ({len(messages)} messages):
                 messages=[
                     provider_message.Message(
                         role="user",
-                        content=provider_message.ContentElement.from_text(prompt),
+                        content=[provider_message.ContentElement.from_text(prompt)],
                     )
                 ],
-                timeout=60.0,
             )
 
             # Extract text from response
             if response.content:
-                if isinstance(response.content, list):
+                if isinstance(response.content, str):
+                    return response.content
+                elif isinstance(response.content, list):
                     parts = []
                     for elem in response.content:
-                        if hasattr(elem, "text"):
+                        if hasattr(elem, "text") and elem.text:
                             parts.append(elem.text)
                     return "\n".join(parts) if parts else "Failed to generate summary."
-                elif hasattr(response.content, "text"):
-                    return response.content.text
 
             return "Failed to generate summary."
 
