@@ -4,13 +4,25 @@ metadata:
   author: langbot-team
   name: AIImagePlugin
   repository: https://github.com/langbot-app/langbot-plugin-demo/tree/main/AIImagePlugin
-  version: 0.1.2
+  version: 0.1.4
   description:
     en_US: Compatible with OpenAI format image generation plugin
     zh_Hans: 兼容使用 OpenAI 格式的绘图插件
+    zh_Hant: AI 繪圖插件，支援透過 Tool 呼叫方式觸發繪圖，同時支援多種繪圖服務商。
+    ja_JP: AI画像生成プラグイン。Tool呼び出しで画像生成をトリガーし、複数の画像生成サービスに対応します。
+    vi_VN: Plugin vẽ tranh AI, hỗ trợ kích hoạt vẽ tranh qua Tool call, đồng thời
+      hỗ trợ nhiều nhà cung cấp dịch vụ vẽ tranh.
+    th_TH: ปลั๊กอินวาดภาพ AI รองรับการเรียกวาดภาพผ่าน Tool call และรองรับผู้ให้บริการวาดภาพหลายราย
+    es_ES: Plugin de generación de imágenes con IA, soporta la generación mediante
+      llamadas Tool y es compatible con múltiples proveedores de servicios.
   label:
     en_US: AI Image Generator
     zh_Hans: AI 绘图生成器
+    zh_Hant: AI Image Generator
+    ja_JP: AI Image Generator
+    vi_VN: AI Image Generator
+    th_TH: AI Image Generator
+    es_ES: AI Image Generator
   icon: assets/icon.svg
 spec:
   config:
@@ -23,7 +35,7 @@ spec:
       en_US: Base URL for OpenAI compatible API
       zh_Hans: 兼容 OpenAI 格式的 API 地址
     required: false
-    default: 'https://api.qhaigc.net/v1'
+    default: https://api.qhaigc.net/v1
   - name: openai_api_key
     type: string
     label:
