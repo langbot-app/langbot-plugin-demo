@@ -7,7 +7,6 @@ metadata:
     zh_Hans: FAQ 管理
     ja_JP: FAQ 管理
     es_ES: Gestor de FAQ
-  icon: "\U0001F4DD"
 spec:
   path: index.html
 execution:
