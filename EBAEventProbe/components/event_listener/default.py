@@ -19,6 +19,7 @@ class EBAEventProbeListener(EventListener):
         for event_type in (
             events.MessageReceived,
             events.MessageEdited,
+            events.MessageDeleted,
             events.MessageReactionReceived,
             events.FeedbackReceived,
             events.GroupMemberJoined,
@@ -61,12 +62,15 @@ class EBAEventProbeListener(EventListener):
             api_result["calls"].append({"name": "get_bots", "result": bots})
 
             if bots:
-                bot_info = await self.plugin.get_bot_info(bots[0])
+                selected_bot = next((bot for bot in bots if isinstance(bot, dict) and bot.get("enable")), bots[0])
+                selected_bot_uuid = selected_bot["uuid"] if isinstance(selected_bot, dict) else selected_bot
+
+                bot_info = await self.plugin.get_bot_info(selected_bot_uuid)
                 api_result["calls"].append({"name": "get_bot_info", "result": bot_info})
 
                 target_type = "group" if event.chat_type == "group" else "person"
                 await self.plugin.send_message(
-                    bots[0],
+                    selected_bot_uuid,
                     target_type,
                     event.chat_id,
                     platform_message.MessageChain(
