@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
 
@@ -59,13 +60,27 @@ class IndexStrategy(ABC):
         """Extract document-level metadata fields with ``doc_`` prefix.
 
         Excludes heavy fields like ``images`` to keep chunk metadata lean.
+
+        TODO: Chroma 1.5.0+ supports array metadata types (list of str/int/float/bool)
+        with $contains/$not_contains operators. LangBot currently uses Chroma 1.4.1
+        which only accepts scalar types (str, int, float, bool, None). This function
+        converts non-scalar values to JSON strings for compatibility. Once LangBot
+        upgrades to Chroma 1.5.0+, this conversion layer can be removed to enable
+        native array filtering. See: https://www.trychroma.com/changelog/metadata-arrays
         """
         if not doc_metadata:
             return {}
         skip = {"images"}
-        return {
-            f"doc_{k}": v for k, v in doc_metadata.items() if k not in skip
-        }
+        result = {}
+        for k, v in doc_metadata.items():
+            if k in skip:
+                continue
+            # Chroma 1.4.1 only accepts scalar types; convert list/dict to JSON string
+            if isinstance(v, (str, int, float, bool)) or v is None:
+                result[f"doc_{k}"] = v
+            else:
+                result[f"doc_{k}"] = json.dumps(v, ensure_ascii=False)
+        return result
 
     def postprocess_results(self, results: list[dict], top_k: int) -> list[dict]:
         """Post-process search results before returning to the caller.

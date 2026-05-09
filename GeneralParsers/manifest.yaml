@@ -4,7 +4,7 @@ metadata:
   author: langbot-team
   name: GeneralParsers
   repository: https://github.com/langbot-app/langbot-plugin-demo
-  version: 0.1.6
+  version: 0.1.7
   description:
     en_US: General Parsers - Extract text from PDF, Word, Markdown, HTML, TXT, and
       image files
@@ -28,16 +28,29 @@ metadata:
   icon: assets/icon.svg
 spec:
   config:
+  - name: enable_vision
+    label:
+      en_US: Enable Vision
+      zh_Hans: 启用视觉解析
+    type: boolean
+    default: false
+    description:
+      en_US: Enable OCR for scanned PDF pages and image content recognition
+      zh_Hans: 启用扫描页 OCR 和图片内容识别
+
   - name: vision_llm_model_uuid
     label:
       en_US: Vision Model
       zh_Hans: 视觉模型
     type: llm-model-selector
     required: false
+    show_if:
+      field: enable_vision
+      operator: eq
+      value: true
     description:
-      en_US: 'Optional: Select a vision-capable LLM to enable OCR for scanned pages
-        and recognize images in PDFs, DOCX, and direct image uploads'
-      zh_Hans: 可选：选择视觉模型，自动识别扫描页文字，并识别 PDF、DOCX 以及直接上传图片中的内容
+      en_US: Select a vision-capable LLM for OCR and image recognition
+      zh_Hans: 选择视觉模型，用于 OCR 和图片识别
   components:
     Parser:
       fromDirs:
