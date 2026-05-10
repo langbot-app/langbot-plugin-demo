@@ -15,6 +15,7 @@ The listener currently records:
 
 - `MessageReceived`
 - `MessageEdited`
+- `MessageDeleted`
 - `MessageReactionReceived`
 - `FeedbackReceived`
 - `GroupMemberJoined`
@@ -50,6 +51,12 @@ Set `EBA_PROBE_API=1` to make the listener call plugin APIs after the first `Mes
 - `list_commands`
 - `list_tools`
 - `list_knowledge_bases`
+
+Additional probe flags:
+
+- `EBA_PROBE_COMPONENT_SWEEP=1` sends a component matrix to the triggering chat: plain text, mentions, `AtAll` in groups, base64 image, quote, file, and flattened forward.
+- `EBA_PROBE_PLATFORM_API=1` calls safe common platform APIs and selected `call_platform_api` actions for the adapter.
+- `EBA_PROBE_DESTRUCTIVE=1` enables destructive or externally visible moderation-style calls. Keep it disabled unless the test uses disposable targets.
 
 Query-based APIs such as `EventContext.reply()` are intentionally not called by this EBA probe because standalone EBA platform events do not have a pipeline query context.
 
