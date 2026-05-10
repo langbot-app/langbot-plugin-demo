@@ -349,6 +349,8 @@ class EBAEventProbeListener(EventListener):
                         },
                     )
                 )
+        elif "dingtalk" in adapter_name:
+            calls.append(("call_platform_api", {"action": "check_access_token", "params": {}}))
 
         results = []
         for name, params in calls:
