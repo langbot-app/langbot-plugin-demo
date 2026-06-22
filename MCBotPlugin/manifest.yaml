@@ -18,6 +18,8 @@ metadata:
       และสถิติเวลาเล่นของผู้เล่นแต่ละคน
     es_ES: Vincula un servidor de Minecraft a tu grupo de chat, consulta el estado
       del servidor y los jugadores conectados, y registra el tiempo de juego por jugador.
+    ru_RU: Привязка сервера Minecraft к чат-группе, запрос состояния сервера и онлайн-игроков,
+      учёт игрового времени каждого игрока.
   label:
     en_US: MCBotPlugin
     zh_Hans: Minecraft 服务器助手
@@ -26,6 +28,7 @@ metadata:
     vi_VN: MCBotPlugin
     es_ES: MCBotPlugin
     th_TH: MCBotPlugin
+    ru_RU: Помощник сервера Minecraft
   icon: assets/icon.svg
 spec:
   config:
