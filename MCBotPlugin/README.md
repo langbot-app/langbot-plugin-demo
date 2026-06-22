@@ -1,38 +1,38 @@
 # MCBotPlugin
 
-为 Minecraft 服务器群提供服务的 LangBot 插件：将服务器绑定到聊天群、查询服务器实时状态与在线玩家、统计每位玩家的在线时长。
+A LangBot plugin for Minecraft server chat groups: bind a Minecraft server to your group, query live server status and online players, and track per-player playtime.
 
-> 这是旧版 [MCBotPlugin](https://github.com/langbot-app/MCBotPlugin)（基于 QChatGPT）迁移到新版 LangBot 插件 SDK 的版本。存储由 MongoDB 改为插件内置 KV 存储（无需任何外部数据库），Minecraft 状态查询由同步 `mctools` 改为异步 `mcstatus`，后台时长采样由线程改为 asyncio 任务。
+> This is the migration of the legacy [MCBotPlugin](https://github.com/langbot-app/MCBotPlugin) (built for QChatGPT) to the new LangBot plugin SDK. MongoDB storage is replaced by the built-in plugin key-value storage (no external database required), the synchronous `mctools` ping is replaced by async `mcstatus`, and the thread-based playtime routine is replaced by an asyncio background task.
 
-## 功能
+## Features
 
-- **绑定服务器**：每个群可绑定一个 Minecraft（Java 版）服务器
-- **状态查询**：实时查看 MOTD、版本、在线人数与玩家名单
-- **时长统计**：后台定时采样在线玩家，统计任意时段内每位玩家的在线时长
+- **Bind a server**: each group can bind one Minecraft (Java Edition) server
+- **Status query**: live MOTD, version, online count and player list
+- **Playtime stats**: a background task samples online players and aggregates per-player online time over any period
 
-## 命令
+## Commands
 
-| 命令 | 说明 | 权限 |
+| Command | Description | Privilege |
 | --- | --- | --- |
-| `!mcbot` | 查看帮助 | 所有人 |
-| `!mcbot bind <地址[:端口]>` | 绑定服务器到本群 | 管理员 |
-| `!mcbot unbind` | 解绑服务器 | 管理员 |
-| `!mcbot status` | 查看服务器状态与在线玩家 | 所有人 |
-| `!mcbot time [分钟]` | 查看在线时长统计（默认 1440 分钟 = 24 小时） | 所有人 |
+| `!mcbot` | Show help | Everyone |
+| `!mcbot bind <address[:port]>` | Bind a server to this group | Admin |
+| `!mcbot unbind` | Unbind the server | Admin |
+| `!mcbot status` | Show server status and online players | Everyone |
+| `!mcbot time [minutes]` | Show playtime stats (default 1440 min = 24h) | Everyone |
 
-> 管理员由 LangBot 的 `admins` 配置（`{launcher_type}_{launcher_id}`）决定。
+> Admins are determined by LangBot's `admins` config (`{launcher_type}_{launcher_id}`).
 
-## 配置项
+## Config
 
-| 配置 | 说明 | 默认 |
+| Key | Description | Default |
 | --- | --- | --- |
-| `track_interval` | 后台采样在线玩家的间隔（秒），最小 15 | 60 |
-| `ping_timeout` | Ping 服务器的超时时间（秒） | 10 |
+| `track_interval` | Background sampling interval in seconds (min 15) | 60 |
+| `ping_timeout` | Server ping timeout in seconds | 10 |
 
-## 依赖
+## Dependencies
 
-- [`mcstatus`](https://github.com/py-mine/mcstatus) —— Minecraft 服务器状态查询
+- [`mcstatus`](https://github.com/py-mine/mcstatus) — Minecraft server status queries
 
-## 数据存储
+## Storage
 
-绑定关系与在线记录保存在 LangBot 插件内置 KV 存储中，无需 MongoDB。在线记录默认保留 14 天。
+Bindings and online records are kept in LangBot's built-in plugin KV storage; no MongoDB needed. Online records are retained for 14 days.
