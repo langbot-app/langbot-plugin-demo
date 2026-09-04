@@ -65,4 +65,4 @@
 ## 相關連結
 
 - [Tavily API 文檔](https://docs.tavily.com/)
-- [LangBot 文檔](https://docs.langbot.app/)
+- [LangBot 文檔](https://langbot.app/docs/)

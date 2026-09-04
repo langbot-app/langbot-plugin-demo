@@ -65,4 +65,4 @@ Plugin này là một phần của hệ sinh thái plugin LangBot.
 ## Liên kết
 
 - [Tài liệu Tavily API](https://docs.tavily.com/)
-- [Tài liệu LangBot](https://docs.langbot.app/)
+- [Tài liệu LangBot](https://langbot.app/docs/)
