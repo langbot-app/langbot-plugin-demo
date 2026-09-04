@@ -65,4 +65,4 @@ LangBot とチャットする際、LLM は自動的にこのツールを使用�
 ## リンク
 
 - [Tavily API ドキュメント](https://docs.tavily.com/)
-- [LangBot ドキュメント](https://docs.langbot.app/)
+- [LangBot ドキュメント](https://langbot.app/docs/)

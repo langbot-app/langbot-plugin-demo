@@ -65,4 +65,4 @@ Este plugin es parte del ecosistema de plugins de LangBot.
 ## Enlaces
 
 - [Documentación de la API de Tavily](https://docs.tavily.com/)
-- [Documentación de LangBot](https://docs.langbot.app/)
+- [Documentación de LangBot](https://langbot.app/docs/)

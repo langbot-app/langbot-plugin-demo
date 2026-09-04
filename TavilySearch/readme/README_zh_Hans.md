@@ -65,5 +65,5 @@
 ## 链接
 
 - [Tavily API 文档](https://docs.tavily.com/)
-- [LangBot 文档](https://docs.langbot.app/)
+- [LangBot 文档](https://langbot.app/docs/)
 

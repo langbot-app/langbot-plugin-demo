@@ -65,4 +65,4 @@
 ## ลิงก์ที่เกี่ยวข้อง
 
 - [เอกสารประกอบ Tavily API](https://docs.tavily.com/)
-- [เอกสารประกอบ LangBot](https://docs.langbot.app/)
+- [เอกสารประกอบ LangBot](https://langbot.app/docs/)
