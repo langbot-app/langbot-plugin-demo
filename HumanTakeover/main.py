@@ -3,10 +3,13 @@
 # Please refer to https://langbot.app/docs/en/plugin/dev/tutor.html for more details.
 from __future__ import annotations
 
-import json
-import time
 import asyncio
+import hashlib
+import json
 import logging
+import time
+from contextlib import asynccontextmanager
+from copy import deepcopy
 from typing import Any
 
 from langbot_plugin.api.definition.plugin import BasePlugin
@@ -22,6 +25,10 @@ MAX_MESSAGES_PER_SESSION = 300
 # plugin_storage 键名
 STORAGE_KEY_SESSIONS = "ht_sessions"
 STORAGE_KEY_MESSAGES = "ht_messages"
+STORAGE_KEY_SCHEMA = "ht_storage_schema"
+STORAGE_SESSION_PREFIX = "ht_session_v2_"
+# Leave ample room for SDK base64 encoding and the 16 MiB transport envelope.
+MAX_SESSION_STORAGE_BYTES = 8 * 1024 * 1024
 
 
 class HumanTakeover(BasePlugin):
@@ -40,11 +47,21 @@ class HumanTakeover(BasePlugin):
     _lock: asyncio.Lock
     _loaded: bool
 
-    async def initialize(self) -> None:
-        """插件启动时调用:从持久化存储载入会话与消息缓存。"""
+    async def initialize(self, *, storage_reconciled: bool = False) -> None:
+        """Reload only after any uncertain remote mutations have been reconciled."""
+        if not hasattr(self, "_lock"):
+            self._lock = asyncio.Lock()
+        async with self._lock:
+            if getattr(self, "_storage_uncertain", False) and not storage_reconciled:
+                raise RuntimeError(
+                    "HumanTakeover storage requires remote reconciliation"
+                )
+            self._storage_uncertain = False
+            await self._finish_operation(self._initialize())
+
+    async def _initialize(self) -> None:
         self.sessions = {}
         self.messages = {}
-        self._lock = asyncio.Lock()
         self._loaded = False
         try:
             await self._load_all()
@@ -54,8 +71,9 @@ class HumanTakeover(BasePlugin):
                 len(self.sessions),
                 len(self.messages),
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.error("HumanTakeover failed to load persisted data: %s", e)
+            raise
 
     def __del__(self) -> None:
         # Will be called when plugin is terminating
@@ -63,68 +81,173 @@ class HumanTakeover(BasePlugin):
 
     # ==================== 持久化 ====================
 
+    @staticmethod
+    async def _finish_operation(operation):
+        """Keep the caller's lock until the shielded transaction has settled."""
+        task = asyncio.create_task(operation)
+        cancelled = False
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                cancelled = True
+        # Retrieve errors before propagating cancellation: an RPC error is not proof
+        # of rejection, and _storage_mutation has fenced further access in that case.
+        result = task.result()
+        if cancelled:
+            raise asyncio.CancelledError
+        return result
+
+    async def _storage_mutation(self, operation):
+        try:
+            return await operation
+        except BaseException:
+            # The SDK cannot prove whether a dispatched mutation committed.
+            self._loaded = False
+            self._storage_uncertain = True
+            logger.error(
+                "HumanTakeover remote storage outcome unknown; writes and clear "
+                "are blocked until remote reconciliation and reinitialization"
+            )
+            raise
+
+    @staticmethod
+    def _session_storage_key(session_key: str) -> str:
+        # Fixed-length keys also accommodate long/non-ASCII platform identifiers.
+        return (
+            STORAGE_SESSION_PREFIX
+            + hashlib.sha256(session_key.encode("utf-8")).hexdigest()
+        )
+
     async def _load_all(self) -> None:
-        """从 plugin_storage 载入全部数据到内存。"""
-        try:
-            keys = await self.get_plugin_storage_keys()
-        except Exception as e:  # noqa: BLE001
-            logger.warning("HumanTakeover get_plugin_storage_keys failed: %s", e)
-            keys = []
-
-        if STORAGE_KEY_SESSIONS in keys:
-            try:
-                raw = await self.get_plugin_storage(STORAGE_KEY_SESSIONS)
-                self.sessions = json.loads(raw.decode("utf-8")) or {}
-            except Exception as e:  # noqa: BLE001
-                logger.warning("HumanTakeover load sessions failed: %s", e)
+        """Migrate legacy snapshots once, retaining them as an untouched backup."""
+        keys = await self.get_plugin_storage_keys()
+        if STORAGE_KEY_SCHEMA not in keys:
+            if STORAGE_KEY_SESSIONS in keys:
+                self.sessions = json.loads(
+                    await self.get_plugin_storage(STORAGE_KEY_SESSIONS)
+                )
+            if STORAGE_KEY_MESSAGES in keys:
+                self.messages = json.loads(
+                    await self.get_plugin_storage(STORAGE_KEY_MESSAGES)
+                )
+            # Older versions also treated a null top-level snapshot as empty.
+            if self.sessions is None:
                 self.sessions = {}
-
-        if STORAGE_KEY_MESSAGES in keys:
-            try:
-                raw = await self.get_plugin_storage(STORAGE_KEY_MESSAGES)
-                self.messages = json.loads(raw.decode("utf-8")) or {}
-            except Exception as e:  # noqa: BLE001
-                logger.warning("HumanTakeover load messages failed: %s", e)
+            if self.messages is None:
                 self.messages = {}
-
-    async def _persist_sessions(self) -> None:
-        try:
-            await self.set_plugin_storage(
-                STORAGE_KEY_SESSIONS,
-                json.dumps(self.sessions, ensure_ascii=False).encode("utf-8"),
+            self._validate_storage()
+            # Nothing may be written until both legacy snapshots have been read.
+            for session_key in self.sessions.keys() | self.messages.keys():
+                await self._persist_session(session_key)
+            # Commit migration last. A failed migration simply retries the legacy data.
+            await self._storage_mutation(
+                self.set_plugin_storage(STORAGE_KEY_SCHEMA, b"2")
             )
-        except Exception as e:  # noqa: BLE001
-            logger.error("HumanTakeover persist sessions failed: %s", e)
+            return
 
-    async def _persist_messages(self) -> None:
-        try:
-            await self.set_plugin_storage(
-                STORAGE_KEY_MESSAGES,
-                json.dumps(self.messages, ensure_ascii=False).encode("utf-8"),
+        if await self.get_plugin_storage(STORAGE_KEY_SCHEMA) != b"2":
+            raise ValueError("Unsupported HumanTakeover storage schema")
+        for key in keys:
+            if not key.startswith(STORAGE_SESSION_PREFIX):
+                continue
+            record = json.loads(await self.get_plugin_storage(key))
+            session_key = record["session_key"]
+            if self._session_storage_key(session_key) != key:
+                raise ValueError("HumanTakeover session storage key mismatch")
+            if record["session"] is not None:
+                self.sessions[session_key] = record["session"]
+            if record["messages"] is not None:
+                self.messages[session_key] = record["messages"]
+        self._validate_storage()
+
+    def _validate_storage(self) -> None:
+        if not isinstance(self.sessions, dict) or not isinstance(self.messages, dict):
+            raise ValueError("Invalid HumanTakeover storage: expected dictionaries")  # noqa: TRY004
+        if any(not isinstance(session, dict) for session in self.sessions.values()):
+            raise ValueError("Invalid HumanTakeover session storage")
+        if any(
+            not isinstance(bucket, list)
+            or any(not isinstance(entry, dict) for entry in bucket)
+            for bucket in self.messages.values()
+        ):
+            raise ValueError("Invalid HumanTakeover message storage")
+
+    async def _persist_session(self, session_key: str) -> None:
+        """Metadata + history commit together in one bounded KV value."""
+        raw = json.dumps(
+            {
+                "session_key": session_key,
+                "session": self.sessions.get(session_key),
+                "messages": self.messages.get(session_key),
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+        if len(raw) > MAX_SESSION_STORAGE_BYTES:
+            raise ValueError(
+                f"HumanTakeover session {session_key!r} exceeds the storage limit "
+                f"of {MAX_SESSION_STORAGE_BYTES} bytes; history has not been truncated"
             )
-        except Exception as e:  # noqa: BLE001
-            logger.error("HumanTakeover persist messages failed: %s", e)
+        await self._storage_mutation(
+            self.set_plugin_storage(self._session_storage_key(session_key), raw)
+        )
+
+    @asynccontextmanager
+    async def _session_update(self, session_key: str):
+        # Hold the existing lock through I/O so an older snapshot cannot win a race.
+        async with self._lock:
+            if not self._loaded:
+                raise RuntimeError("HumanTakeover storage is not initialized")
+            old_session = deepcopy(self.sessions.get(session_key))
+            old_messages = deepcopy(self.messages.get(session_key))
+            committed = False
+
+            async def commit():
+                nonlocal committed
+                await self._persist_session(session_key)
+                committed = True
+
+            try:
+                yield
+                if (self.sessions.get(session_key), self.messages.get(session_key)) != (
+                    old_session,
+                    old_messages,
+                ):
+                    await self._finish_operation(commit())
+            except BaseException:
+                if committed:
+                    # Cancellation after acknowledgement must not roll back the cache.
+                    raise
+                # Restore the last acknowledged cache, NOT proof of remote rejection.
+                # Ambiguous remote failures have already fenced further mutations.
+                if old_session is None:
+                    self.sessions.pop(session_key, None)
+                else:
+                    self.sessions[session_key] = old_session
+                if old_messages is None:
+                    self.messages.pop(session_key, None)
+                else:
+                    self.messages[session_key] = old_messages
+                raise
 
     async def clear_all(self) -> None:
-        """清理所有存储的会话与消息数据。"""
+        """Delete only our data, serialized with updates; failures reach the caller."""
         async with self._lock:
-            self.sessions = {}
-            self.messages = {}
-        # 先尝试删除;若删除失败(如 key 不存在),回退为写入空数据,确保重启后不恢复
-        try:
-            await self.delete_plugin_storage(STORAGE_KEY_SESSIONS)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "HumanTakeover delete sessions storage failed, fallback to empty: %s", e
-            )
-            await self._persist_sessions()
-        try:
-            await self.delete_plugin_storage(STORAGE_KEY_MESSAGES)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "HumanTakeover delete messages storage failed, fallback to empty: %s", e
-            )
-            await self._persist_messages()
+            if not self._loaded:
+                raise RuntimeError("HumanTakeover storage is not initialized")
+            await self._finish_operation(self._clear_all())
+
+    async def _clear_all(self) -> None:
+        keys = await self.get_plugin_storage_keys()
+        # Keep the schema marker: a restart must never resurrect the legacy backup.
+        for key in keys:
+            if key in (
+                STORAGE_KEY_SESSIONS,
+                STORAGE_KEY_MESSAGES,
+            ) or key.startswith(STORAGE_SESSION_PREFIX):
+                await self._storage_mutation(self.delete_plugin_storage(key))
+        self.sessions = {}
+        self.messages = {}
         logger.info("HumanTakeover storage cleared by user")
 
     # ==================== 会话与消息 ====================
@@ -190,12 +313,12 @@ class HumanTakeover(BasePlugin):
                 "target_id": str(target_id),
                 "bot_uuid": bot_uuid,
                 "name": name or str(target_id),
-                "adapter": "",              # 消息平台适配器(收消息时缓存)
+                "adapter": "",  # 消息平台适配器(收消息时缓存)
                 "members": {},  # group: {member_id: member_name}
                 "last_msg_at": 0,
                 "last_msg_preview": "",
-                "unread": False,            # 未处理标记(触发词命中,类似微信红点)
-                "triggered_word": "",       # 命中的触发词
+                "unread": False,  # 未处理标记(触发词命中,类似微信红点)
+                "triggered_word": "",  # 命中的触发词
                 "takeover": {
                     "active": False,
                     "started_at": 0,
@@ -229,7 +352,7 @@ class HumanTakeover(BasePlugin):
         adapter: str = "",
     ) -> None:
         """记录一条消息(用户/AI/人工)并更新会话元数据。"""
-        async with self._lock:
+        async with self._session_update(session_key):
             sess = self._ensure_session(
                 session_key, session_type, target_id, bot_uuid, session_name, adapter
             )
@@ -258,9 +381,6 @@ class HumanTakeover(BasePlugin):
             preview = content if content_type == "text" else "[图片]"
             sess["last_msg_preview"] = (preview or "")[:50]
 
-        await self._persist_sessions()
-        await self._persist_messages()
-
     # ==================== 接管状态 ====================
 
     def is_taken_over(self, session_key: str) -> bool:
@@ -273,11 +393,7 @@ class HumanTakeover(BasePlugin):
             return False
         # 惰性超时判定
         last_human = takeover.get("last_human_at") or takeover.get("started_at") or 0
-        if time.time() - last_human >= self.get_takeover_timeout():
-            takeover["active"] = False
-            logger.info("HumanTakeover session %s auto-released (timeout)", session_key)
-            return False
-        return True
+        return time.time() - last_human < self.get_takeover_timeout()
 
     def takeover_remaining(self, session_key: str) -> int:
         """返回接管剩余秒数;未接管返回 0。"""
@@ -293,7 +409,7 @@ class HumanTakeover(BasePlugin):
 
     async def set_takeover(self, session_key: str, active: bool) -> bool:
         """开启或取消接管。"""
-        async with self._lock:
+        async with self._session_update(session_key):
             sess = self.sessions.get(session_key)
             if not sess:
                 return False
@@ -308,12 +424,11 @@ class HumanTakeover(BasePlugin):
                 logger.info("HumanTakeover session %s taken over", session_key)
             else:
                 logger.info("HumanTakeover session %s released", session_key)
-        await self._persist_sessions()
         return True
 
     async def touch_human_response(self, session_key: str) -> None:
         """人工回复时刷新最后响应时间,重置 10 分钟计时。"""
-        async with self._lock:
+        async with self._session_update(session_key):
             sess = self.sessions.get(session_key)
             if not sess:
                 return
@@ -321,17 +436,15 @@ class HumanTakeover(BasePlugin):
                 "takeover", {"active": False, "started_at": 0, "last_human_at": 0}
             )
             takeover["last_human_at"] = time.time()
-        await self._persist_sessions()
 
     async def mark_unread(self, session_key: str, word: str) -> None:
         """标记会话为未处理(触发词命中),用于前端红点提醒。"""
-        async with self._lock:
+        async with self._session_update(session_key):
             sess = self.sessions.get(session_key)
             if not sess:
                 return
             sess["unread"] = True
             sess["triggered_word"] = word or ""
-        await self._persist_sessions()
         logger.info(
             "HumanTakeover session %s marked unread by trigger word '%s'",
             session_key,
@@ -340,33 +453,32 @@ class HumanTakeover(BasePlugin):
 
     async def clear_unread(self, session_key: str) -> None:
         """清除会话未处理标记(人工打开/处理后调用)。"""
-        async with self._lock:
+        async with self._session_update(session_key):
             sess = self.sessions.get(session_key)
             if not sess:
                 return
             sess["unread"] = False
             sess["triggered_word"] = ""
-        await self._persist_sessions()
 
     async def expire_timeouts(self) -> None:
         """批量处理所有会话的接管超时(供 Page 轮询时调用)。"""
-        changed = False
         now = time.time()
-        for sess in self.sessions.values():
-            takeover = sess.get("takeover", {})
-            if takeover.get("active"):
-                last_human = (
-                    takeover.get("last_human_at") or takeover.get("started_at") or 0
-                )
-                if now - last_human >= self.get_takeover_timeout():
-                    takeover["active"] = False
-                    changed = True
-                    logger.info(
-                        "HumanTakeover session %s auto-released (timeout sweep)",
-                        sess.get("session_key"),
+        for session_key in list(self.sessions):
+            async with self._session_update(session_key):
+                sess = self.sessions.get(session_key)
+                if not sess:
+                    continue
+                takeover = sess.get("takeover", {})
+                if takeover.get("active"):
+                    last_human = (
+                        takeover.get("last_human_at") or takeover.get("started_at") or 0
                     )
-        if changed:
-            await self._persist_sessions()
+                    if now - last_human >= self.get_takeover_timeout():
+                        takeover["active"] = False
+                        logger.info(
+                            "HumanTakeover session %s auto-released (timeout sweep)",
+                            session_key,
+                        )
 
     # ==================== 人工发送消息 ====================
 
@@ -394,26 +506,18 @@ class HumanTakeover(BasePlugin):
             return False, "bot_uuid unknown for this session"
 
         components: list[platform_message.MessageComponent] = []
-        content_repr = ""
-        content_type = "text"
 
         if text:
             components.append(platform_message.Plain(text=text))
-            content_repr = text
-            content_type = "text"
 
         if image_base64:
             # 期望前端传入完整 data URL: data:image/png;base64,xxxx
             components.append(platform_message.Image(base64=image_base64))
-            content_type = "image"
-            content_repr = image_base64
 
         if file_base64:
             components.append(
                 platform_message.File(base64=file_base64, name=file_name or "file")
             )
-            content_type = "file"
-            content_repr = file_name or "file"
 
         if not components:
             return False, "empty message"
@@ -448,53 +552,38 @@ class HumanTakeover(BasePlugin):
                 message_chain=platform_message.MessageChain(components),
             )
         except Exception as e:  # noqa: BLE001
-            logger.error(
-                "HumanTakeover human_send failed for %s: %s", session_key, e
-            )
+            logger.error("HumanTakeover human_send failed for %s: %s", session_key, e)
             return False, str(e)
 
-        # 记录人工消息并刷新接管计时
-        # 若包含文本和图片,分别记录两条
-        if text:
-            await self.record_message(
-                session_key=session_key,
-                session_type=target_type,
-                target_id=str(target_id),
-                bot_uuid=bot_uuid,
-                session_name=sess.get("name", ""),
-                role="human",
-                sender_id="",
-                sender_name="人工客服",
-                content_type="text",
-                content=text,
+        # Delivery already succeeded. Never report a storage failure as a failed send.
+        try:
+            for kind, content in (
+                ("text", text),
+                ("image", image_base64),
+                ("file", (file_name or "file") if file_base64 else None),
+            ):
+                if content:
+                    await self.record_message(
+                        session_key=session_key,
+                        session_type=target_type,
+                        target_id=str(target_id),
+                        bot_uuid=bot_uuid,
+                        session_name=sess.get("name", ""),
+                        role="human",
+                        sender_id="",
+                        sender_name="人工客服",
+                        content_type=kind,
+                        content=content,
+                    )
+            await self.touch_human_response(session_key)
+        except Exception as e:  # noqa: BLE001
+            logger.error(
+                "HumanTakeover message sent but storage failed for %s: %s",
+                session_key,
+                e,
             )
-        if image_base64:
-            await self.record_message(
-                session_key=session_key,
-                session_type=target_type,
-                target_id=str(target_id),
-                bot_uuid=bot_uuid,
-                session_name=sess.get("name", ""),
-                role="human",
-                sender_id="",
-                sender_name="人工客服",
-                content_type="image",
-                content=image_base64,
+            return (
+                False,
+                f"Message was sent, but history/status storage failed; do not resend. {e}",
             )
-
-        if file_base64:
-            await self.record_message(
-                session_key=session_key,
-                session_type=target_type,
-                target_id=str(target_id),
-                bot_uuid=bot_uuid,
-                session_name=sess.get("name", ""),
-                role="human",
-                sender_id="",
-                sender_name="人工客服",
-                content_type="file",
-                content=file_name or "file",
-            )
-
-        await self.touch_human_response(session_key)
         return True, ""

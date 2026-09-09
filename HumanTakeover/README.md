@@ -32,6 +32,63 @@ A human-takeover & manual-reply plugin for LangBot. It lets a human operator tak
 3. Select a conversation, click **Take Over** to block the AI, then reply manually.
 4. Click the avatar to inspect user/group info; use **Clear Storage** to reset data.
 
+## Storage and upgrades
+
+Each session's metadata and history are now saved together under a separate
+`ht_session_v2_<sha256>` key. Updating one conversation no longer rewrites every
+conversation's history. Writes are serialized in the plugin process and storage
+failures are returned to callers rather than reported as successful saves.
+
+On first startup, the plugin reads the legacy `ht_sessions` / `ht_messages`
+snapshots and copies **all** their records into the new format, without applying
+retention during migration. A completion marker is written only after every
+session has been saved. Interrupted migrations can be retried. The original keys
+remain as an untouched migration-time backup; they are not updated afterward.
+Subsequent startups read only the new records. Back up plugin storage before
+upgrading: **downgrading does not include conversations changed after migration**.
+The console's Clear storage action removes both formats and their history.
+
+A session record is limited to **8 MiB of UTF-8 JSON**, leaving room for SDK
+base64 encoding within the 16 MiB transport frame. Exceeding this limit raises an
+explicit error before sending the storage request; it does not trim message
+content or discard previously saved history. New messages still use the existing
+300-message retention policy. A failed save restores the last acknowledged cache;
+this is not evidence that a remotely dispatched write was rejected.
+A legacy session exceeding the limit stops initialization and leaves the original
+snapshots intact; it requires export/recovery rather than automatic truncation.
+A legacy aggregate already too large to read through the SDK also requires
+out-of-band recovery. Failed initialization never falls back to empty storage.
+
+This is single-plugin-process serialization, not a multi-writer transaction.
+Clear storage deletes multiple keys and may partially complete on a storage
+failure. Caller cancellation (including repeated cancellation) waits for the
+shielded update, clear, or migration to settle before releasing serialization.
+An acknowledged commit remains in the cache even if its caller was cancelled.
+
+Any remote mutation error, including a timeout or lost connection, has an unknown
+commit outcome: it marks storage uninitialized and blocks further writes, clear,
+and ordinary reinitialization. Do not assume the write was rejected or retry it.
+An operator must first establish that the old host operations have finished (or
+stop the old host writer), reconcile persisted data, then reload using
+`await plugin.initialize(storage_reconciled=True)` or restart the plugin. A mere
+read or plugin restart while old host requests can still commit is **not** safe
+reconciliation. Partial clear/migration can then be retried.
+If a manual reply was delivered but saving its
+history failed, the console explicitly warns **not to resend** it.
+
+### Storage regression tests
+
+With `langbot-plugin==0.5.7` installed, run from `HumanTakeover/`:
+
+```sh
+python -m unittest discover -s tests -v
+```
+
+Tests cover migration/readback, bounded per-session writes, concurrent updates,
+rollback/error reporting, retention and clearing. The stdio test uses the real
+SDK and an OS subprocess, with a synthetic Host KV sink; it is not a full LangBot
+deployment or a live database test.
+
 ## Components
 
 - **EventListener**: records messages, caches the adapter, matches trigger words, and blocks the AI while taken over.
