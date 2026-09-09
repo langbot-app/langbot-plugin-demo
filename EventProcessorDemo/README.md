@@ -26,9 +26,9 @@ one target. Old Pipeline `EventListener` hooks are unchanged.
 2. In this directory, run `lbp build` with that SDK. The package is written to
    `dist/langbot-team-EventProcessorDemo-0.1.0.lbpkg`.
 3. Upload it with **Add extension → local plugin installation** in LangBot.
-4. Create two **Event processor** instances. On each detail page, select
+4. Create two **Plugin processor** instances. On each detail page, select
    **Community concierge** or **Event observer** from the component selector.
-5. Open the adjacent plugin settings, customize configuration, and save.
+5. Open the **Configuration** tab on the right, customize settings, and save.
 6. Use the in-page event debugger. Select the event type from an example file,
    switch the event editor to **Full JSON**, and paste **only its `data` object**.
    The surrounding `{ "event_type": ..., "data": ... }` is the HTTP debug payload.
@@ -107,3 +107,22 @@ saved. Re-running adds another set of run records.
 The component API exposes `ctx.event`, `ctx.config`, `ctx.run_id`, `ctx.log()`,
 `ctx.reply()` and the run-scoped `ctx.api`. There is no legacy Pipeline Query or
 Agent loop to construct; returning from the handler ends that invocation.
+
+## Full event matrix
+
+Create a dedicated **Event observer** instance with payload logging enabled and
+no Bot bindings. With the same authentication environment as above, run:
+
+```bash
+python scripts/event_matrix.py --base-url http://127.0.0.1:5399 --processor-id YOUR_PROCESSOR_UUID
+```
+
+`examples/event-matrix.json` covers all 17 standard EBA events with minimal and
+populated payloads, eight extra variants (including empty/image-only messages,
+feedback values and temporary bans), and six invalid inputs: 48 cases total.
+The script checks typed payload preservation, exactly one completed run per valid
+input, persisted run status, no action calls, and rejection of invalid inputs.
+It adds debug run records and writes an ignored receipt to
+`data/event-matrix-results.json`. It does not install plugins or modify bindings.
+This validates the Host/runtime processing path; platform-specific event support
+and actual delivery must still be verified against each adapter.
