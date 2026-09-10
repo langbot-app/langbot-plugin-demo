@@ -6,8 +6,8 @@ metadata:
     en_US: Event observer
     zh_Hans: 事件观察员
   description:
-    en_US: Observe any routed EBA event without tools or outgoing messages.
-    zh_Hans: 观察路由至此实例的任意 EBA 事件，不调用工具，不发送消息。
+    en_US: Observe any routed event without tools or outgoing messages.
+    zh_Hans: 观察路由至此实例的任意事件，不调用工具，不发送消息。
 spec:
   events:
   - '*'

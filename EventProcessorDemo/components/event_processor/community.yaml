@@ -6,9 +6,9 @@ metadata:
     en_US: Community concierge
     zh_Hans: 社区助手
   description:
-    en_US: Welcome members, handle demo commands, and record feedback with typed EBA
+    en_US: Welcome members, handle demo commands, and record feedback with typed
       handlers.
-    zh_Hans: 欢迎新成员、处理演示指令、记录反馈，展示类型化 EBA 事件处理。
+    zh_Hans: 欢迎新成员、处理演示指令、记录反馈，展示类型化事件处理。
 spec:
   events:
   - group.member_joined

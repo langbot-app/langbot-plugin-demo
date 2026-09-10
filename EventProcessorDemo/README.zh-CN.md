@@ -3,7 +3,7 @@
 [English](README.md)
 
 一个完整、可重复测试的 **EventProcessor** 示例插件。适用于 LangBot 4.11
-EBA 架构的 `dev/4.11.x` 主程序和配套 SDK；旧版 SDK 没有此组件，不能运行。
+ `dev/4.11.x` 主程序和配套 SDK；旧版 SDK 没有此组件，不能运行。
 无需配置模型，也不依赖任何付费 API。
 
 ## 两个组件
@@ -81,7 +81,7 @@ python scripts/smoke.py --base-url http://127.0.0.1:5399
 ## 阅读源码
 
 `community.py` 演示类型化事件，`observer.py` 演示通用事件回退。
-同名 YAML 定义组件名称、独立配置、支持事件与权限。`ctx.event` 是新版 EBA 事件；
+同名 YAML 定义组件名称、独立配置、支持事件与权限。`ctx.event` 是平台事件；
 `ctx.config` 是当前处理器实例的配置；`ctx.log()` 记录日志，`ctx.reply()` 调用平台回复动作。
 `ctx.api` 提供运行级 API。无需伪造 Pipeline Query，也没有 Agent loop；处理函数返回即结束本次调用。
 
@@ -94,7 +94,7 @@ python scripts/smoke.py --base-url http://127.0.0.1:5399
 python scripts/event_matrix.py --base-url http://127.0.0.1:5399 --processor-id YOUR_PROCESSOR_UUID
 ```
 
-`examples/event-matrix.json` 覆盖全部 17 种标准 EBA 事件的最小和完整载荷，
+`examples/event-matrix.json` 覆盖全部 17 种标准事件的最小和完整载荷，
 另有空消息、纯图片、反馈类型、临时禁言等 8 个变体，以及 6 个非法输入，共 48 项。
 脚本检查类型化字段保留、合法输入只完成一次运行、持久化状态、无动作调用，
 以及非法输入被拒绝。运行会增加调试记录，结果保存在被 Git 忽略的

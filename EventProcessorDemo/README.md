@@ -4,7 +4,7 @@
 
 A complete, deterministic **EventProcessor** example for LangBot 4.11. It runs
 plugin Python handlers directly, with no model, API subscription, or extra runtime
-dependency. This is a developer example for the EBA-era `dev/4.11.x` Host and SDK;
+dependency. This is a developer example for the `dev/4.11.x` Host and SDK;
 it does not work with older SDKs that lack `EventProcessor`.
 
 ## Two selectable components
@@ -99,7 +99,7 @@ saved. Re-running adds another set of run records.
 ## Source map
 
 - `components/event_processor/community.py`: typed `@self.handler(...)` examples.
-- `components/event_processor/observer.py`: generic EBA fallback handler.
+- `components/event_processor/observer.py`: generic event fallback handler.
 - Matching YAML files: independent component configs, event declarations and permissions.
 - `tests/test_processors.py`: all samples, trace pairing, fault handling, Unicode and config isolation.
 - `scripts/smoke.py`: actual package installation and Host/runtime integration check.
@@ -117,7 +117,7 @@ no Bot bindings. With the same authentication environment as above, run:
 python scripts/event_matrix.py --base-url http://127.0.0.1:5399 --processor-id YOUR_PROCESSOR_UUID
 ```
 
-`examples/event-matrix.json` covers all 17 standard EBA events with minimal and
+`examples/event-matrix.json` covers all 17 standard events with minimal and
 populated payloads, eight extra variants (including empty/image-only messages,
 feedback values and temporary bans), and six invalid inputs: 48 cases total.
 The script checks typed payload preservation, exactly one completed run per valid
