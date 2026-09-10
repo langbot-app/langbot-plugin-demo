@@ -5,16 +5,15 @@
       "id": "demo-alice",
       "nickname": "Alice"
     },
-    "chat_type": "group",
-    "chat_id": "demo-community",
-    "group": {
-      "id": "demo-community",
-      "name": "EventProcessor Workshop"
-    },
+    "chat_id": "demo-alice",
     "message_chain": [
       {
         "type": "Plain",
-        "text": "/demo help"
+        "text": "/demo echo 你好 Runner!"
+      },
+      {
+        "type": "Image",
+        "url": "https://example.com/demo.png"
       }
     ]
   }

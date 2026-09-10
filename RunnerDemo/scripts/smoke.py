@@ -15,7 +15,7 @@ from pathlib import Path
 import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = "langbot-team/EventProcessorDemo"
+PLUGIN = "langbot-team/RunnerDemo"
 
 
 def checked(response):
@@ -54,13 +54,13 @@ def install_and_test(client: httpx.Client, package: Path, receipt: Path) -> dict
         found = {
             d["id"].rsplit("/", 1)[-1]: d
             for d in descriptors
-            if d["id"].startswith("event_processor:" + PLUGIN + "/")
+            if d["id"].startswith("plugin:" + PLUGIN + "/")
         }
         if set(found) == {"community", "observer"}:
             break
         time.sleep(1)
     else:
-        raise RuntimeError("Both EventProcessor components must be registered")
+        raise RuntimeError("Both Runner components must be registered")
 
     ids, configs = {}, {}
     existing = checked(client.get("/api/v1/agents")).get("agents", [])
@@ -96,7 +96,7 @@ def install_and_test(client: httpx.Client, package: Path, receipt: Path) -> dict
                         "kind": "event_processor",
                         "name": title,
                         "emoji": "🧩",
-                        "description": "EventProcessorDemo: deterministic examples, no model needed.",
+                        "description": "RunnerDemo: deterministic examples, no model needed.",
                     },
                 )
             )["uuid"]
@@ -190,7 +190,7 @@ def main():
     parser.add_argument(
         "--package",
         type=Path,
-        default=ROOT / "dist/langbot-team-EventProcessorDemo-0.1.0.lbpkg",
+        default=ROOT / "dist/langbot-team-RunnerDemo-0.1.0.lbpkg",
     )
     parser.add_argument(
         "--receipt", type=Path, default=ROOT / "data/smoke-results.json"

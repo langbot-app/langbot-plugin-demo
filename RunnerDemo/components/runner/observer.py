@@ -4,20 +4,20 @@ from __future__ import annotations
 
 import json
 
-from langbot_plugin.api.definition.components.event_processor import (
-    EventProcessor,
-    EventProcessorContext,
+from langbot_plugin.api.definition.components.runner import (
+    Runner,
+    RunnerContext,
 )
 from langbot_plugin.api.entities.builtin.platform.events import EBAEvent
 
 
-class ObserverProcessor(EventProcessor):
+class ObserverProcessor(Runner):
     async def initialize(self) -> None:
         await super().initialize()
 
         @self.handler(EBAEvent)
-        async def observe(ctx: EventProcessorContext):
-            event = ctx.event
+        async def observe(ctx: RunnerContext):
+            event = ctx.platform_event
             chinese = ctx.config.get("language", "zh_Hans") == "zh_Hans"
             await ctx.log(
                 f"{'接收事件' if chinese else 'Received event'}: {event.type}"

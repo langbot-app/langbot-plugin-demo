@@ -1,11 +1,11 @@
-# Event Processor Workshop
+# Runner Workshop
 
 [简体中文](README.zh-CN.md)
 
-A complete, deterministic **EventProcessor** example for LangBot 4.11. It runs
+A complete, deterministic **Runner** example for LangBot 4.11. It runs
 plugin Python handlers directly, with no model, API subscription, or extra runtime
 dependency. This is a developer example for the `dev/4.11.x` Host and SDK;
-it does not work with older SDKs that lack `EventProcessor`.
+it does not work with older SDKs that lack `Runner`.
 
 ## Two selectable components
 
@@ -24,7 +24,7 @@ one target. Old Pipeline `EventListener` hooks are unchanged.
 
 1. Use a running LangBot 4.11 Host and matching Plugin Runtime.
 2. In this directory, run `lbp build` with that SDK. The package is written to
-   `dist/langbot-team-EventProcessorDemo-0.1.0.lbpkg`.
+   `dist/langbot-team-RunnerDemo-0.1.0.lbpkg`.
 3. Upload it with **Add extension → local plugin installation** in LangBot.
 4. Create two **Plugin processor** instances. On each detail page, select
    **Community concierge** or **Event observer** from the component selector.
@@ -98,8 +98,8 @@ saved. Re-running adds another set of run records.
 
 ## Source map
 
-- `components/event_processor/community.py`: typed `@self.handler(...)` examples.
-- `components/event_processor/observer.py`: generic event fallback handler.
+- `components/runner/community.py`: typed `@self.handler(...)` examples.
+- `components/runner/observer.py`: generic event fallback handler.
 - Matching YAML files: independent component configs, event declarations and permissions.
 - `tests/test_processors.py`: all samples, trace pairing, fault handling, Unicode and config isolation.
 - `scripts/smoke.py`: actual package installation and Host/runtime integration check.
@@ -126,3 +126,5 @@ It adds debug run records and writes an ignored receipt to
 `data/event-matrix-results.json`. It does not install plugins or modify bindings.
 This validates the Host/runtime processing path; platform-specific event support
 and actual delivery must still be verified against each adapter.
+
+Observer declares `usages: [agent, event]` and can be selected by either an Agent or a Plugin processor. Community declares `usages: [event]`. Both use the same Runner context and event handlers.

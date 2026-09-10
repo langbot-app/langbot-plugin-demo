@@ -2,11 +2,11 @@ apiVersion: langbot/v1
 kind: Plugin
 metadata:
   author: langbot-team
-  name: EventProcessorDemo
+  name: RunnerDemo
   version: 0.1.0
   repository: https://github.com/langbot-app/langbot-plugin-demo
   label:
-    en_US: Event Processor Workshop
+    en_US: Runner Workshop
     zh_Hans: 事件处理器示例工坊
   description:
     en_US: Two code-driven processors demonstrating typed events, action traces,
@@ -16,10 +16,10 @@ metadata:
 spec:
   config: []
   components:
-    EventProcessor:
+    Runner:
       fromDirs:
-      - path: components/event_processor/
+      - path: components/runner/
 execution:
   python:
     path: main.py
-    attr: EventProcessorDemo
+    attr: RunnerDemo

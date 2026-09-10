@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 
-from langbot_plugin.api.definition.components.event_processor import (
-    EventProcessor,
-    EventProcessorContext,
+from langbot_plugin.api.definition.components.runner import (
+    Runner,
+    RunnerContext,
 )
 from langbot_plugin.api.entities.builtin.platform.events import (
     FeedbackReceivedEvent,
@@ -20,7 +20,7 @@ from langbot_plugin.api.entities.builtin.platform.events import (
 from langbot_plugin.api.entities.builtin.platform.message import Plain
 
 
-def text(ctx: EventProcessorContext, english: str, chinese: str) -> str:
+def text(ctx: RunnerContext, english: str, chinese: str) -> str:
     return chinese if ctx.config.get("language", "zh_Hans") == "zh_Hans" else english
 
 
@@ -28,7 +28,7 @@ def name(user) -> str:
     return user.nickname or str(user.id)
 
 
-async def reply(ctx: EventProcessorContext, content: str) -> None:
+async def reply(ctx: RunnerContext, content: str) -> None:
     await ctx.log(
         text(
             ctx,
@@ -51,13 +51,13 @@ async def reply(ctx: EventProcessorContext, content: str) -> None:
     )
 
 
-class CommunityProcessor(EventProcessor):
+class CommunityProcessor(Runner):
     async def initialize(self) -> None:
         await super().initialize()
 
         @self.handler(MemberJoinedEvent)
-        async def on_join(ctx: EventProcessorContext):
-            event = ctx.event
+        async def on_join(ctx: RunnerContext):
+            event = ctx.platform_event
             await ctx.log(
                 text(
                     ctx,
@@ -79,8 +79,8 @@ class CommunityProcessor(EventProcessor):
             )
 
         @self.handler(MemberLeftEvent)
-        async def on_leave(ctx: EventProcessorContext):
-            event = ctx.event
+        async def on_leave(ctx: RunnerContext):
+            event = ctx.platform_event
             reason = (
                 text(ctx, "removed by an administrator", "被管理员移出")
                 if event.is_kicked
@@ -113,8 +113,8 @@ class CommunityProcessor(EventProcessor):
                 )
 
         @self.handler(MessageReceivedEvent)
-        async def on_message(ctx: EventProcessorContext):
-            event = ctx.event
+        async def on_message(ctx: RunnerContext):
+            event = ctx.platform_event
             content = "".join(
                 part.text for part in event.message_chain if isinstance(part, Plain)
             ).strip()
@@ -195,7 +195,7 @@ class CommunityProcessor(EventProcessor):
                     "error",
                 )
                 raise RuntimeError(
-                    "EventProcessorDemo: intentional failure requested by /demo fail"
+                    "RunnerDemo: intentional failure requested by /demo fail"
                 )
             else:
                 await reply(
@@ -208,8 +208,8 @@ class CommunityProcessor(EventProcessor):
                 )
 
         @self.handler(MessageReactionEvent)
-        async def on_reaction(ctx: EventProcessorContext):
-            event = ctx.event
+        async def on_reaction(ctx: RunnerContext):
+            event = ctx.platform_event
             await ctx.log(
                 text(
                     ctx,
@@ -219,8 +219,8 @@ class CommunityProcessor(EventProcessor):
             )
 
         @self.handler(FeedbackReceivedEvent)
-        async def on_feedback(ctx: EventProcessorContext):
-            event = ctx.event
+        async def on_feedback(ctx: RunnerContext):
+            event = ctx.platform_event
             category = {1: "positive", 2: "negative", 3: "cancelled"}.get(
                 event.feedback_type, "unknown"
             )
@@ -251,8 +251,8 @@ class CommunityProcessor(EventProcessor):
             )
 
         @self.handler(FriendRequestReceivedEvent)
-        async def on_friend_request(ctx: EventProcessorContext):
-            event = ctx.event
+        async def on_friend_request(ctx: RunnerContext):
+            event = ctx.platform_event
             await ctx.log(
                 text(
                     ctx,
@@ -269,7 +269,7 @@ class CommunityProcessor(EventProcessor):
                 "warning",
             )
 
-    async def profile(self, ctx: EventProcessorContext, *, group: bool) -> None:
+    async def profile(self, ctx: RunnerContext, *, group: bool) -> None:
         for tool in (
             ["event_get_actor", "event_get_group"] if group else ["event_get_actor"]
         ):

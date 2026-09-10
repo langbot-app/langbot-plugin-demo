@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-一个完整、可重复测试的 **EventProcessor** 示例插件。适用于 LangBot 4.11
+一个完整、可重复测试的 **Runner** 示例插件。适用于 LangBot 4.11
  `dev/4.11.x` 主程序和配套 SDK；旧版 SDK 没有此组件，不能运行。
 无需配置模型，也不依赖任何付费 API。
 
@@ -22,7 +22,7 @@
 
 1. 使用配套 SDK 在此目录执行 `lbp build`。
 2. 在 LangBot「添加扩展」中选择本地安装，上传
-   `dist/langbot-team-EventProcessorDemo-0.1.0.lbpkg`。
+   `dist/langbot-team-RunnerDemo-0.1.0.lbpkg`。
 3. 分别创建「社区助手」「事件观察员」两个插件处理器实例。
 4. 在详情页顶部选择对应组件，在右侧「配置」标签中设置参数并保存。
 5. 在左侧事件调试中选择样例的 `event_type`；切换到「完整 JSON」，仅粘贴样例中的 **`data` 对象**。
@@ -62,7 +62,7 @@
 ## 开发测试
 
 ```bash
-# 先准备支持 EventProcessor 的配套 SDK 环境
+# 先准备支持 Runner 的配套 SDK 环境
 python -m pip install -r requirements-dev.txt
 python -m unittest discover -s tests -v
 lbp build
@@ -100,3 +100,5 @@ python scripts/event_matrix.py --base-url http://127.0.0.1:5399 --processor-id Y
 以及非法输入被拒绝。运行会增加调试记录，结果保存在被 Git 忽略的
 `data/event-matrix-results.json`，不会安装插件或修改机器人绑定。
 这些检查覆盖 Host 与运行时的处理链路；各平台的事件支持和实际投递仍需单独验证。
+
+观察员声明 `usages: [agent, event]`，可由 Agent 或插件处理器选择；社区助手声明 `usages: [event]`。两者共用 Runner 上下文和事件处理函数。

@@ -7,10 +7,32 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
-from components.event_processor.community import CommunityProcessor
-from components.event_processor.observer import ObserverProcessor
+from langbot_plugin.api.definition.components.runner import RunnerContext
+
+from components.runner.community import CommunityProcessor
+from components.runner.observer import ObserverProcessor
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def run_context(*, run_id, config, event):
+    return RunnerContext.model_validate(
+        {
+            "run_id": run_id,
+            "trigger": {"type": event.data["type"]},
+            "event": {
+                "event_id": run_id,
+                "event_type": event.data["type"],
+                "source": "test",
+                "data": event.data,
+            },
+            "input": {},
+            "delivery": {"surface": "test"},
+            "resources": {},
+            "runtime": {},
+            "config": config,
+        }
+    )
 
 
 class ProcessorTests(unittest.IsolatedAsyncioTestCase):
@@ -29,14 +51,14 @@ class ProcessorTests(unittest.IsolatedAsyncioTestCase):
 
         api = SimpleNamespace(call_tool=AsyncMock(side_effect=call_tool))
         component.get_run_api = Mock(return_value=api)
-        ctx = SimpleNamespace(
+        ctx = run_context(
             run_id=filename,
             config={"delay_ms": 0, **(config or {})},
             event=SimpleNamespace(
                 data={"type": payload["event_type"], **payload["data"]}
             ),
         )
-        results = [item async for item in component.run(ctx)]
+        results = [item async for item in component.invoke(ctx)]
         return results, api
 
     async def test_all_success_examples_complete_once(self):
@@ -84,9 +106,7 @@ class ProcessorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_image_does_not_corrupt_command_text(self):
         _, api = await self.execute("11-echo-with-image.json")
-        api.call_tool.assert_awaited_once_with(
-            "event_reply", {"text": "你好 EventProcessor!"}
-        )
+        api.call_tool.assert_awaited_once_with("event_reply", {"text": "你好 Runner!"})
 
     async def test_failure_requires_opt_in_and_preserves_error_log(self):
         results, api = await self.execute("06-failure.json")
@@ -98,7 +118,7 @@ class ProcessorTests(unittest.IsolatedAsyncioTestCase):
             return_value=SimpleNamespace(call_tool=AsyncMock())
         )
         payload = json.loads((ROOT / "examples/06-failure.json").read_text())
-        ctx = SimpleNamespace(
+        ctx = run_context(
             run_id="fail",
             config={"allow_demo_failure": True},
             event=SimpleNamespace(
@@ -107,7 +127,7 @@ class ProcessorTests(unittest.IsolatedAsyncioTestCase):
         )
         emitted = []
         with self.assertRaisesRegex(RuntimeError, "intentional failure"):
-            async for result in component.run(ctx):
+            async for result in component.invoke(ctx):
                 emitted.append(result)
         self.assertTrue(any(r.data.get("level") == "error" for r in emitted))
         self.assertFalse(any(r.type == "run.completed" for r in emitted))
@@ -129,14 +149,14 @@ class ProcessorTests(unittest.IsolatedAsyncioTestCase):
         payload = json.loads((ROOT / "examples/01-member-joined.json").read_text())
 
         async def collect(greeting):
-            ctx = SimpleNamespace(
+            ctx = run_context(
                 run_id=greeting,
                 config={"welcome_text": greeting},
                 event=SimpleNamespace(
                     data={"type": payload["event_type"], **payload["data"]}
                 ),
             )
-            return [r async for r in component.run(ctx)]
+            return [r async for r in component.invoke(ctx)]
 
         await asyncio.gather(collect("Welcome A"), collect("Welcome B"))
         replies = [

@@ -1,5 +1,5 @@
 apiVersion: langbot/v1
-kind: EventProcessor
+kind: Runner
 metadata:
   name: community
   label:
@@ -10,6 +10,7 @@ metadata:
       handlers.
     zh_Hans: 欢迎新成员、处理演示指令、记录反馈，展示类型化事件处理。
 spec:
+  usages: [event]
   events:
   - group.member_joined
   - group.member_left

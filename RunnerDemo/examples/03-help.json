@@ -9,12 +9,12 @@
     "chat_id": "demo-community",
     "group": {
       "id": "demo-community",
-      "name": "EventProcessor Workshop"
+      "name": "Runner Workshop"
     },
     "message_chain": [
       {
         "type": "Plain",
-        "text": "/demo profile"
+        "text": "/demo help"
       }
     ]
   }

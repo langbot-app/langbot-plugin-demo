@@ -1,5 +1,5 @@
 apiVersion: langbot/v1
-kind: EventProcessor
+kind: Runner
 metadata:
   name: observer
   label:
@@ -9,6 +9,7 @@ metadata:
     en_US: Observe any routed event without tools or outgoing messages.
     zh_Hans: 观察路由至此实例的任意事件，不调用工具，不发送消息。
 spec:
+  usages: [agent, event]
   events:
   - '*'
   config:
