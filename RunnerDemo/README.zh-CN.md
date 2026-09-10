@@ -83,7 +83,7 @@ python scripts/smoke.py --base-url http://127.0.0.1:5399
 `community.py` 演示类型化事件，`observer.py` 演示通用事件回退。
 同名 YAML 定义组件名称、独立配置、支持事件与权限。`ctx.event` 是平台事件；
 `ctx.config` 是当前处理器实例的配置；`ctx.log()` 记录日志，`ctx.reply()` 调用平台回复动作。
-`ctx.api` 提供运行级 API。无需伪造 Pipeline Query，也没有 Agent loop；处理函数返回即结束本次调用。
+`ctx.get_available_tools()` 查询本次可调用的工具。平台和 LangBot API 通过 `self.plugin` 调用，并自动使用当前运行的授权。无需伪造 Pipeline Query，也没有 Agent loop；处理函数返回即结束本次调用。
 
 ## 完整事件矩阵
 

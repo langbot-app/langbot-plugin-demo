@@ -270,11 +270,14 @@ class CommunityProcessor(Runner):
             )
 
     async def profile(self, ctx: RunnerContext, *, group: bool) -> None:
+        available = {tool["name"] for tool in await ctx.get_available_tools()}
         for tool in (
             ["event_get_actor", "event_get_group"] if group else ["event_get_actor"]
         ):
+            if tool not in available:
+                continue
             try:
-                await ctx.api.call_tool(tool, {})
+                await self.plugin.call_tool(tool, {})
                 await ctx.log(
                     text(ctx, f"Lookup completed: {tool}", f"资料查询完成：{tool}")
                 )

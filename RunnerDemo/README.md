@@ -105,7 +105,7 @@ saved. Re-running adds another set of run records.
 - `scripts/smoke.py`: actual package installation and Host/runtime integration check.
 
 The component API exposes `ctx.event`, `ctx.config`, `ctx.run_id`, `ctx.log()`,
-`ctx.reply()` and the run-scoped `ctx.api`. There is no legacy Pipeline Query or
+`ctx.reply()` and `ctx.get_available_tools()`. Platform and LangBot APIs use `self.plugin` and automatically retain invocation grants. There is no legacy Pipeline Query or
 Agent loop to construct; returning from the handler ends that invocation.
 
 ## Full event matrix

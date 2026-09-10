@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 from langbot_plugin.api.definition.components.runner import RunnerContext
+from langbot_plugin.api.proxies.langbot_api import LangBotAPIProxy
 
 from components.runner.community import CommunityProcessor
 from components.runner.observer import ObserverProcessor
@@ -49,8 +50,14 @@ class ProcessorTests(unittest.IsolatedAsyncioTestCase):
                 raise RuntimeError("Adapter does not support lookup")
             return {"ok": True, "mock": True, "delivery": "simulated"}
 
-        api = SimpleNamespace(call_tool=AsyncMock(side_effect=call_tool))
+        api = SimpleNamespace(
+            call_tool=AsyncMock(side_effect=call_tool),
+            list_tools=AsyncMock(
+                return_value=[{"name": "event_get_actor"}, {"name": "event_get_group"}]
+            ),
+        )
         component.get_run_api = Mock(return_value=api)
+        component.plugin = LangBotAPIProxy(component._plugin_runtime_handler)
         ctx = run_context(
             run_id=filename,
             config={"delay_ms": 0, **(config or {})},
@@ -144,8 +151,14 @@ class ProcessorTests(unittest.IsolatedAsyncioTestCase):
     async def test_config_is_scoped_to_each_run(self):
         component = CommunityProcessor()
         await component.initialize()
-        api = SimpleNamespace(call_tool=AsyncMock(return_value={"mock": True}))
+        api = SimpleNamespace(
+            call_tool=AsyncMock(return_value={"mock": True}),
+            list_tools=AsyncMock(
+                return_value=[{"name": "event_get_actor"}, {"name": "event_get_group"}]
+            ),
+        )
         component.get_run_api = Mock(return_value=api)
+        component.plugin = LangBotAPIProxy(component._plugin_runtime_handler)
         payload = json.loads((ROOT / "examples/01-member-joined.json").read_text())
 
         async def collect(greeting):
